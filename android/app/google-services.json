@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "774892450149",
+    "project_id": "pharmacistassistant-65f44",
+    "storage_bucket": "pharmacistassistant-65f44.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:774892450149:android:550abf9ba5da592204318c",
+        "android_client_info": {
+          "package_name": "com.pharmacist.pharmacist_assistant"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBFMSUmpiBv3jE5_i96LDRjlM08NPD1G80"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
