@@ -47,6 +47,7 @@ dependencies:
   shared_preferences: ^2.2.2
 
   # Notifications
+  alarm: ^5.1.5
   flutter_local_notifications: ^17.0.0
   timezone: ^0.9.2
 

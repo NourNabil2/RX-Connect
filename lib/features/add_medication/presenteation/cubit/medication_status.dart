@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:pharmacist_assistant/core/models/medication/medication_model.dart';
 import 'package:pharmacist_assistant/core/service/DrugInteractionService.dart';
-import 'package:pharmacist_assistant/core/service/notification_helper.dart';
+import 'package:pharmacist_assistant/features/alarm/service/medication_alarm_service.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../../../core/db/database_helper.dart';
@@ -15,7 +15,7 @@ class MedicationProvider with ChangeNotifier {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final DatabaseHelper _localDb = DatabaseHelper();
   final DrugInteractionService _interactionService = DrugInteractionService();
-  final NotificationService _notificationService = NotificationService();
+  final MedicationAlarmService _alarmService = MedicationAlarmService();
   final Uuid _uuid = const Uuid();
 
   MedicationStatus _status = MedicationStatus.idle;
@@ -33,73 +33,85 @@ class MedicationProvider with ChangeNotifier {
 
   /// Load Medications
   Future<void> loadMedications(String userId) async {
+    // منع التحميل المكرر
+    if (_status == MedicationStatus.loading) return;
+
     try {
       _status = MedicationStatus.loading;
       notifyListeners();
 
-      debugPrint('📥 Loading medications for user: $userId');
-
-      // Load from local DB first
-      try {
-        final localMeds = await _localDb.getAllMedications(userId);
+      // 1. تحميل من Local DB فوراً (سريع جداً)
+      final localMeds = await _localDb.getAllMedications(userId);
+      if (localMeds.isNotEmpty) {
         _medications = localMeds.map((m) => MedicationModel.fromMap(m)).toList();
-        debugPrint('✅ Loaded ${_medications.length} medications from local DB');
-        notifyListeners();
-      } catch (localError) {
-        debugPrint('⚠️ Local DB error (non-critical): $localError');
-      }
-
-      // Sync with Firestore
-      try {
-        final snapshot = await _firestore
-            .collection('medications')
-            .doc(userId)
-            .collection('list')
-            .where('isActive', isEqualTo: true)
-            .orderBy('createdAt', descending: true)
-            .get();
-
-        debugPrint('✅ Firestore returned ${snapshot.docs.length} medications');
-
-        _medications = snapshot.docs
-            .map((doc) {
-          try {
-            return MedicationModel.fromJson(doc.data());
-          } catch (e) {
-            debugPrint('⚠️ Error parsing medication ${doc.id}: $e');
-            return null;
-          }
-        })
-            .whereType<MedicationModel>()
-            .toList();
-
-        debugPrint('✅ Successfully parsed ${_medications.length} medications');
-
-        // Update local DB
-        for (var med in _medications) {
-          try {
-            await _localDb.insertMedication(med.toMap());
-          } catch (e) {
-            debugPrint('⚠️ Error saving to local DB: $e');
-          }
-        }
-
         _status = MedicationStatus.success;
-      } catch (firestoreError) {
-        debugPrint('❌ Firestore error: $firestoreError');
-        _status = MedicationStatus.error;
-        _errorMessage = 'فشل تحميل الأدوية من السحابة';
+        notifyListeners();
+        debugPrint('✅ Loaded ${_medications.length} from cache');
       }
 
-      notifyListeners();
+      // 2. Sync مع Firestore في الخلفية (بدون await)
+      _syncWithFirestore(userId);
+
     } catch (e) {
-      debugPrint('❌ Critical error in loadMedications: $e');
+      debugPrint('❌ Error: $e');
       _status = MedicationStatus.error;
-      _errorMessage = 'خطأ في تحميل الأدوية: $e';
+      _errorMessage = 'خطأ في التحميل';
       notifyListeners();
     }
   }
 
+  /// Sync في الخلفية بدون blocking
+  Future<void> _syncWithFirestore(String userId) async {
+    try {
+      final snapshot = await _firestore
+          .collection('medications')
+          .doc(userId)
+          .collection('list')
+          .where('isActive', isEqualTo: true)
+          .orderBy('createdAt', descending: true)
+          .get();
+
+      final cloudMeds = snapshot.docs
+          .map((doc) {
+        try {
+          return MedicationModel.fromJson(doc.data());
+        } catch (e) {
+          return null;
+        }
+      })
+          .whereType<MedicationModel>()
+          .toList();
+
+      // تحديث فقط لو في تغيير
+      if (_hasChanged(_medications, cloudMeds)) {
+        _medications = cloudMeds;
+
+        // حفظ في Local DB
+        for (var med in cloudMeds) {
+          await _localDb.insertMedication(med.toMap());
+        }
+
+        notifyListeners();
+        debugPrint('🔄 Synced ${cloudMeds.length} from cloud');
+      }
+    } catch (e) {
+      debugPrint('⚠️ Cloud sync failed: $e');
+    }
+  }
+
+  /// تحقق من التغيير
+  bool _hasChanged(List<MedicationModel> old, List<MedicationModel> new_) {
+    if (old.length != new_.length) return true;
+
+    for (int i = 0; i < old.length; i++) {
+      if (old[i].id != new_[i].id ||
+          old[i].updatedAt != new_[i].updatedAt) {
+        return true;
+      }
+    }
+
+    return false;
+  }
   /// Check Drug Interactions
   Future<List<DrugInteractionModel>> checkInteractions(
       String newMedicationName,
@@ -184,11 +196,11 @@ class MedicationProvider with ChangeNotifier {
         debugPrint('⚠️ Local DB update failed (non-critical): $e');
       }
 
-      // 4. Cancel old notifications
-      await _cancelMedicationNotifications(medicationId);
+      // 4. Cancel old alarms ⬅️ استخدام Alarm
+      await _cancelMedicationAlarms(medicationId, originalMed.times);
 
-      // 5. Schedule new notifications
-      await _scheduleMedicationNotifications(updatedMedication);
+      // 5. Schedule new alarms ⬅️ استخدام Alarm
+      await _scheduleMedicationAlarms(updatedMedication);
 
       // 6. Reload medications
       await loadMedications(userId);
@@ -286,8 +298,8 @@ class MedicationProvider with ChangeNotifier {
         debugPrint('⚠️ Local DB save error (non-critical): $localError');
       }
 
-      // 5. Schedule notifications 🔔
-      await _scheduleMedicationNotifications(medication);
+      // 5. Schedule alarms 🔔 ⬅️ استخدام Alarm
+      await _scheduleMedicationAlarms(medication);
 
       // 6. Notify doctor if interactions
       if (interactions.isNotEmpty) {
@@ -316,49 +328,35 @@ class MedicationProvider with ChangeNotifier {
     }
   }
 
-  /// Schedule notifications for a medication
-  Future<void> _scheduleMedicationNotifications(MedicationModel medication) async {
+  /// Schedule alarms for a medication ⬅️ استخدام Alarm بدلاً من Notifications
+  Future<void> _scheduleMedicationAlarms(MedicationModel medication) async {
     try {
-      debugPrint('📅 Scheduling notifications for: ${medication.name}');
+      debugPrint('📅 Scheduling alarms for: ${medication.name}');
 
-      for (int i = 0; i < medication.times.length; i++) {
-        final timeStr = medication.times[i];
-        final timeParts = timeStr.split(':');
-        final hour = int.parse(timeParts[0]);
-        final minute = int.parse(timeParts[1]);
+      await _alarmService.scheduleMedicationAlarms(
+        medicationId: medication.id,
+        medicationName: medication.name,
+        dosage: medication.dosage,
+        times: medication.times,
+        imageUrl: medication.imageUrl,
+      );
 
-        final notificationId = _generateNotificationId(medication.id, i);
-
-        await _notificationService.scheduleDailyReminder(
-          id: notificationId,
-          title: '💊 تذكير بتناول الدواء',
-          body: '${medication.name} - ${medication.dosage}\n⏰ الوقت: $timeStr',
-          time: TimeOfDay(hour: hour, minute: minute),
-        );
-
-        debugPrint('✅ Scheduled notification #$notificationId for $timeStr');
-      }
-
-      debugPrint('✅ All notifications scheduled successfully');
+      debugPrint('✅ All alarms scheduled successfully');
     } catch (e) {
-      debugPrint('⚠️ Failed to schedule notifications: $e');
-      // Don't fail the whole operation
+      debugPrint('⚠️ Failed to schedule alarms: $e');
     }
   }
 
-  /// Cancel all notifications for a medication
-  Future<void> _cancelMedicationNotifications(String medicationId) async {
+  /// Cancel all alarms for a medication ⬅️ استخدام Alarm
+  Future<void> _cancelMedicationAlarms(String medicationId, List<String> times) async {
     try {
-      debugPrint('🔕 Cancelling notifications for: $medicationId');
+      debugPrint('🔕 Cancelling alarms for: $medicationId');
 
-      for (int i = 0; i < 10; i++) {
-        final notifId = _generateNotificationId(medicationId, i);
-        await _notificationService.cancelReminder(notifId);
-      }
+      await _alarmService.cancelMedicationAlarms(medicationId, times);
 
-      debugPrint('✅ Cancelled all notifications');
+      debugPrint('✅ Cancelled all alarms');
     } catch (e) {
-      debugPrint('⚠️ Failed to cancel notifications: $e');
+      debugPrint('⚠️ Failed to cancel alarms: $e');
     }
   }
 
@@ -374,8 +372,11 @@ class MedicationProvider with ChangeNotifier {
     }
 
     try {
-      // Cancel notifications
-      await _cancelMedicationNotifications(medicationId);
+      // Find medication to get times
+      final medication = _medications.firstWhere((m) => m.id == medicationId);
+
+      // Cancel alarms ⬅️ استخدام Alarm
+      await _cancelMedicationAlarms(medicationId, medication.times);
 
       // Soft delete in Firestore
       await _firestore
@@ -422,12 +423,6 @@ class MedicationProvider with ChangeNotifier {
 
       return false;
     }).toList();
-  }
-
-  /// Generate unique notification ID
-  int _generateNotificationId(String medicationId, int timeIndex) {
-    final hash = medicationId.hashCode.abs() % 100000;
-    return hash * 10 + timeIndex;
   }
 
   /// Notify Doctor about Interaction

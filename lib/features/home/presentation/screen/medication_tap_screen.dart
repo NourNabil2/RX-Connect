@@ -24,45 +24,61 @@ class MedicationsTabScreen extends StatefulWidget {
   State<MedicationsTabScreen> createState() => _MedicationsTabScreenState();
 }
 
-class _MedicationsTabScreenState extends State<MedicationsTabScreen> {
+class _MedicationsTabScreenState extends State<MedicationsTabScreen> with AutomaticKeepAliveClientMixin {
+
   MedicationFilter _selectedFilter = MedicationFilter.all;
+  bool _isInitialized = false;
+
+  @override
+  bool get wantKeepAlive => true; // ⬅️ Keep state alive
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadMedications());
+    // ⬅️ تحميل مرة واحدة فقط
+    if (!_isInitialized) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _loadMedications();
+        _isInitialized = true;
+      });
+    }
   }
 
   void _loadMedications() {
     final auth = context.read<AuthProvider>();
     final medications = context.read<MedicationProvider>();
 
-    if (auth.currentUser != null) {
+    if (auth.currentUser != null && medications.medications.isEmpty) {
       medications.loadMedications(auth.currentUser!.id);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // ⬅️ مهم للـ AutomaticKeepAliveClientMixin
+
     final theme = Theme.of(context);
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       body: Consumer<MedicationProvider>(
         builder: (context, medProvider, _) {
+          // ⬅️ Show cached data immediately
+          if (medProvider.medications.isEmpty && !medProvider.isLoading) {
+            return _buildEmptyState();
+          }
+
           return CustomScrollView(
             slivers: [
               _buildSliverAppBar(medProvider.medications.length),
 
-              if (medProvider.isLoading)
+              if (medProvider.isLoading && medProvider.medications.isEmpty)
                 _buildLoadingState()
-              else if (medProvider.medications.isEmpty)
-                _buildEmptyState()
               else ...[
-                  _buildFilterChips(),
-                  _buildStatisticsCards(medProvider.medications),
-                  _buildMedicationsList(medProvider.medications),
-                ],
+                _buildFilterChips(),
+                _buildStatisticsCards(medProvider.medications),
+                _buildMedicationsList(medProvider.medications),
+              ],
 
               SliverToBoxAdapter(child: SizedBox(height: 20.h)),
             ],

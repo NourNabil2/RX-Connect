@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:pharmacist_assistant/core/db/database_helper.dart';
 import 'package:pharmacist_assistant/core/models/medication/medication_model.dart';
-import 'package:pharmacist_assistant/core/service/notification_helper.dart';
+import 'package:pharmacist_assistant/features/alarm/service/medication_alarm_service.dart';
 import 'package:uuid/uuid.dart';
 
 enum AdherenceStatus { idle, loading, success, error }
@@ -10,7 +10,7 @@ enum AdherenceStatus { idle, loading, success, error }
 class AdherenceProvider with ChangeNotifier {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final DatabaseHelper _localDb = DatabaseHelper();
-  final NotificationService _notificationService = NotificationService();
+  final MedicationAlarmService _alarmService = MedicationAlarmService();
   final Uuid _uuid = const Uuid();
 
   AdherenceStatus _status = AdherenceStatus.idle;
@@ -70,12 +70,13 @@ class AdherenceProvider with ChangeNotifier {
     }
   }
 
-  /// تسجيل الجرعة (تم التناول)
+  /// تسجيل الجرعة (تم التناول) وإلغاء التنبيه
   Future<bool> markMedicationAsTaken({
     required String userId,
     required String medicationId,
     required String medicationName,
     required String time,
+    int? alarmId, // ⬅️ إضافة alarmId لإلغاء التنبيه
   }) async {
     try {
       final key = _generateKey(medicationId, time);
@@ -123,12 +124,24 @@ class AdherenceProvider with ChangeNotifier {
       // تحديث الكاش
       _adherenceCache[key] = {'taken': true, 'missed': false};
 
-      // إشعار تأكيد
-      await _notificationService.showInstantNotification(
-        id: DateTime.now().millisecondsSinceEpoch % 100000,
-        title: '✅ تم تسجيل الجرعة',
-        body: 'تم تسجيل $medicationName - $time بنجاح',
+      // ⬅️ إلغاء التنبيه الحالي
+      if (alarmId != null) {
+        await _alarmService.cancelAlarm(
+          medicationId,
+          scheduledTime,
+        );
+        debugPrint('✅ Alarm #$alarmId cancelled');
+      }
+
+      // ⬅️ جدولة التنبيه لليوم التالي
+      final nextDayTime = scheduledTime.add(const Duration(days: 1));
+      await _alarmService.scheduleMedicationAlarm(
+        medicationId: medicationId,
+        medicationName: medicationName,
+        dosage: '', // يمكنك تمرير الجرعة من المعلمات
+        scheduledTime: nextDayTime,
       );
+      debugPrint('✅ Next alarm scheduled for ${nextDayTime.hour}:${nextDayTime.minute}');
 
       _status = AdherenceStatus.success;
       notifyListeners();
@@ -206,7 +219,6 @@ class AdherenceProvider with ChangeNotifier {
             .get();
 
         if (snapshot.docs.isEmpty) {
-          // مفيش أدوية في اليوم ده
           continue;
         }
 
@@ -214,11 +226,9 @@ class AdherenceProvider with ChangeNotifier {
         final total = snapshot.docs.length;
         final dayRate = (taken / total) * 100;
 
-        // الالتزام أكثر من 80% = يوم ناجح
         if (dayRate >= 80) {
           streak++;
         } else {
-          // فشل يوم = نوقف الـ streak
           break;
         }
       }
