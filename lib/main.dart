@@ -5,6 +5,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:pharmacist_assistant/core/routes/app_routes.dart';
 import 'package:pharmacist_assistant/features/add_medication/presenteation/cubit/medication_status.dart';
 import 'package:pharmacist_assistant/features/auth/presentaion/cubit/auth_status.dart';
+import 'package:pharmacist_assistant/features/auth/presentaion/screens/login_screen.dart';
+import 'package:pharmacist_assistant/features/dashboard/presentation/dashboard.dart';
 import 'package:pharmacist_assistant/features/home/presentation/cubit/adherence_provider.dart';
 import 'package:provider/provider.dart';
 import 'core/theme/app_theme.dart';
@@ -124,14 +126,36 @@ class _VirtualPharmacistAppState extends State<VirtualPharmacistApp> with Widget
             ChangeNotifierProvider(create: (_) => AdherenceProvider()),
           ],
           child: MaterialApp(
-            title: 'Virtual Pharmacist',
-            debugShowCheckedModeBanner: false,
-            theme: AppTheme.light,
-            navigatorKey: navigatorKey,
-            home: const SplashScreen(),
-            routes: AppRoutes.routes,
-            onGenerateRoute: AppRoutes.onGenerateRoute,
+          title: 'Virtual Pharmacist',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          navigatorKey: navigatorKey,
+
+          // استخدام الشاشات بتاعتك من AppRoutes
+          home: Consumer<AuthProvider>(
+            builder: (context, authProvider, _) {
+              if (authProvider.status == AuthStatus.loading) {
+                return const SplashScreen();
+              }
+              else if (authProvider.status == AuthStatus.authenticated) {
+                // توجيه اليوزر حسب نوعه (مريض ولا دكتور)
+                if (authProvider.isPatient) {
+                  return const PatientHomeScreen();
+                } else {
+                  // لما تجهز شاشة الدكتور ابقى حطها هنا
+                  // return const DoctorHomeScreen();
+                  return const Scaffold(body: Center(child: Text('Doctor Home - Soon')));
+                }
+              }
+              else {
+                return const LoginScreen();
+              }
+            },
           ),
+
+          routes: AppRoutes.routes,
+          onGenerateRoute: AppRoutes.onGenerateRoute,
+        ),
         );
       },
     );

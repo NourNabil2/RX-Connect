@@ -106,8 +106,8 @@ class AppRoutes {
     Navigator.pushNamed(context, addMedication);
   }
 
-  static void toMedicationDetails(BuildContext context, MedicationModel medicationId) {
-    Navigator.pushNamed(context, medicationDetails, arguments: medicationId);
+  static void toMedicationDetails(BuildContext context, MedicationModel medication) {
+    Navigator.pushNamed(context, medicationDetails, arguments: medication);
   }
 
   static void toPatientDetails(BuildContext context, String patientId) {

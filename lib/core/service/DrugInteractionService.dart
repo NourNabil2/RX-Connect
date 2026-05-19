@@ -1,130 +1,112 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'package:flutter/services.dart';
 import 'package:pharmacist_assistant/core/db/database_helper.dart';
+import 'package:pharmacist_assistant/core/db/reference_database_helper.dart';
 import 'package:pharmacist_assistant/core/models/medication/medication_model.dart';
 
 class DrugInteractionService {
+  final ReferenceDatabaseHelper _referenceDb;
+
+  DrugInteractionService({ReferenceDatabaseHelper? referenceDb})
+      : _referenceDb = referenceDb ?? ReferenceDatabaseHelper();
+
   final DatabaseHelper _localDb = DatabaseHelper();
 
-  // Local interactions database cache
   static Map<String, List<Map<String, dynamic>>>? _interactionsCache;
 
-  // Load interactions from local JSON file
-  Future<void> _loadInteractionsDatabase() async {
-    if (_interactionsCache != null) return;
+  Future<List<Map<String, dynamic>>> searchMedications(String query) async {
+    if (query.trim().length < 2) return [];
+    return _referenceDb.searchTradeNames(query);
+  }
+
+  Future<List<Map<String, dynamic>>> getPopularMedications() async {
+    return _referenceDb.getAllTradeNames(limit: 50);
+  }
+
+  Future<String?> resolveActiveIngredient(String tradeName) async {
+    final String? ingredientId = await _referenceDb.resolveTradeName(tradeName);
+    if (ingredientId == null) return null;
+    return _referenceDb.getActiveIngredientName(ingredientId);
+  }
+
+  Future<List<DrugInteractionModel>> checkInteractions({
+    required String newMedicationName,
+    String? newActiveIngredient,
+    required List<MedicationModel> currentMedications,
+  }) async {
+    final List<DrugInteractionModel> detected = [];
 
     try {
-      final jsonString = await rootBundle.loadString('assets/data/interactions_data.json');
-      final List<dynamic> data = json.decode(jsonString);
+      developer.log('🔬 DDI Engine: Analyzing "$newMedicationName"...', name: 'DrugInteractionService');
 
-      _interactionsCache = {};
+      // ⬅️ String بدل int
+      final String? newIngredientId = await _resolveIngredientId(
+        tradeName: newMedicationName,
+        activeIngredient: newActiveIngredient,
+      );
 
-      for (var item in data) {
-        final drug = item['drug'].toString().toLowerCase();
-        if (!_interactionsCache!.containsKey(drug)) {
-          _interactionsCache![drug] = [];
-        }
-        _interactionsCache![drug]!.add(item);
+      if (newIngredientId == null) {
+        developer.log('⚠️ DDI Engine: Not found in formulary. Skipping.', name: 'DrugInteractionService');
+        return detected;
       }
-    } catch (e) {
-      _interactionsCache = {};
+
+      final Map<String, dynamic>? newIngredientRow = await _referenceDb.getActiveIngredient(newIngredientId);
+      final String newIngredientName = (newIngredientRow?['name'] as String?) ?? newMedicationName;
+
+      for (final MedicationModel currentMed in currentMedications) {
+        if (currentMed.name.trim().toLowerCase() == newMedicationName.trim().toLowerCase()) {
+          continue;
+        }
+
+        // ⬅️ String بدل int
+        final String? currentIngredientId = await _resolveIngredientId(
+          tradeName: currentMed.name,
+          activeIngredient: currentMed.activeIngredient,
+        );
+
+        if (currentIngredientId == null) continue;
+        if (currentIngredientId == newIngredientId) continue;
+
+        final List<Map<String, dynamic>> interactionRows = await _referenceDb.findInteractions(newIngredientId, currentIngredientId);
+
+        for (final row in interactionRows) {
+          final String severity = (row['severity'] as String).toLowerCase();
+          final String description = (row['description'] as String?) ?? 'تفاعل دوائي محتمل';
+
+          detected.add(DrugInteractionModel(
+            id: row['id'].toString(),
+            drug1: newMedicationName,
+            drug2: currentMed.name,
+            severity: severity,
+            description: '$newIngredientName ↔ ${currentMed.activeIngredient ?? currentMed.name}: $description',
+            recommendation: _clinicalRecommendation(severity),
+          ));
+        }
+      }
+
+      developer.log('✅ DDI Engine: ${detected.length} interaction(s) detected.', name: 'DrugInteractionService');
+      return detected;
+    } catch (e, stackTrace) {
+      developer.log('❌ DDI Engine: Critical failure', error: e, stackTrace: stackTrace);
+      return detected;
     }
   }
 
-  // Check for drug-drug interactions
-  Future<List<DrugInteractionModel>> checkInteractions(
-      String newMedicationName,
-      String? activeIngredient,
-      List<String> currentMedications,
-      ) async {
-    await _loadInteractionsDatabase();
-
-    List<DrugInteractionModel> interactions = [];
-    final newDrug = newMedicationName.toLowerCase();
-    final newIngredient = activeIngredient?.toLowerCase();
-
-    // Check each current medication
-    for (var currentMed in currentMedications) {
-      final currentDrug = currentMed.toLowerCase();
-
-      // Check drug name interactions
-      final interaction = _checkPairInteraction(newDrug, currentDrug);
-      if (interaction != null) {
-        interactions.add(interaction);
-      }
-
-      // Check active ingredient interactions
-      if (newIngredient != null) {
-        final ingredientInteraction = _checkPairInteraction(newIngredient, currentDrug);
-        if (ingredientInteraction != null) {
-          interactions.add(ingredientInteraction);
-        }
-      }
-    }
-
-    // Cache results in local DB
-    for (var interaction in interactions) {
-      await _localDb.cacheInteraction(interaction.toJson());
-    }
-
-    return interactions;
-  }
-
-  // Check interaction between two drugs
-  DrugInteractionModel? _checkPairInteraction(String drug1, String drug2) {
-    if (_interactionsCache == null) return null;
-
-    // Check drug1 -> drug2
-    if (_interactionsCache!.containsKey(drug1)) {
-      for (var item in _interactionsCache![drug1]!) {
-        if (item['interactsWith'].toString().toLowerCase() == drug2) {
-          return DrugInteractionModel(
-            id: '${drug1}_$drug2',
-            drug1: drug1,
-            drug2: drug2,
-            severity: item['severity'] ?? 'moderate',
-            description: item['description'] ?? 'قد يتفاعل هذا الدواء',
-            recommendation: item['recommendation'] ?? 'استشر الطبيب',
-          );
-        }
-      }
-    }
-
-    // Check drug2 -> drug1
-    if (_interactionsCache!.containsKey(drug2)) {
-      for (var item in _interactionsCache![drug2]!) {
-        if (item['interactsWith'].toString().toLowerCase() == drug1) {
-          return DrugInteractionModel(
-            id: '${drug2}_$drug1',
-            drug1: drug2,
-            drug2: drug1,
-            severity: item['severity'] ?? 'moderate',
-            description: item['description'] ?? 'قد يتفاعل هذا الدواء',
-            recommendation: item['recommendation'] ?? 'استشر الطبيب',
-          );
-        }
-      }
-    }
-
-    return null;
-  }
-
-  // Get interaction severity color
   static String getSeverityColor(String severity) {
     switch (severity.toLowerCase()) {
       case 'major':
       case 'severe':
-        return '#F44336'; // Red
+        return '#F44336';
       case 'moderate':
-        return '#FF9800'; // Orange
+        return '#FF9800';
       case 'minor':
-        return '#FFC107'; // Yellow
+        return '#FFC107';
       default:
-        return '#9E9E9E'; // Grey
+        return '#9E9E9E';
     }
   }
 
-  // Get interaction severity text (Arabic)
   static String getSeverityTextAr(String severity) {
     switch (severity.toLowerCase()) {
       case 'major':
@@ -137,5 +119,26 @@ class DrugInteractionService {
       default:
         return 'غير معروف';
     }
+  }
+
+  // ⬅️ String بدل int
+  Future<String?> _resolveIngredientId({
+    required String tradeName,
+    String? activeIngredient,
+  }) async {
+    if (activeIngredient != null && activeIngredient.trim().isNotEmpty) {
+      final String? id = await _referenceDb.getActiveIngredientIdByName(activeIngredient);
+      if (id != null) return id;
+    }
+    return _referenceDb.resolveTradeName(tradeName);
+  }
+
+  String _clinicalRecommendation(String severity) {
+    return switch (severity.toLowerCase()) {
+      'major' => '⛔ تفاعل دوائي خطير: يُمنع الاستخدام المشترك. استشر الطبيب فوراً.',
+      'moderate' => '⚠️ تفاعل متوسط: يُنصح باستشارة الطبيب قبل الاستخدام المشترك.',
+      'minor' => 'ℹ️ تفاعل بسيط: خطره عادةً محدود. راقب الأعراض واستشر الصيدلي.',
+      _ => 'استشر الطبيب أو الصيدلي لمزيد من المعلومات.',
+    };
   }
 }

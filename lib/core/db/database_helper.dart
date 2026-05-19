@@ -19,7 +19,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 2, // ⬅️ التعديل 1: رفع الإصدار إلى 2
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -52,6 +52,7 @@ class DatabaseHelper {
         id TEXT PRIMARY KEY,
         userId TEXT NOT NULL,
         medicationId TEXT NOT NULL,
+        medicationName TEXT NOT NULL, -- ⬅️ التعديل 2: إضافة العمود هنا للنسخ الجديدة
         scheduledTime TEXT NOT NULL,
         takenTime TEXT,
         status TEXT NOT NULL,
@@ -100,7 +101,10 @@ class DatabaseHelper {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Handle database upgrades here
+    // ⬅️ التعديل 3: عمل Migration سلس لقاعدة البيانات القديمة
+    if (oldVersion < 2) {
+      await db.execute('ALTER TABLE adherence_logs ADD COLUMN medicationName TEXT DEFAULT ""');
+    }
   }
 
   // ==================== MEDICATIONS CRUD ====================

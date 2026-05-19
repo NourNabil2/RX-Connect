@@ -115,20 +115,25 @@ class MedicationProvider with ChangeNotifier {
   /// Check Drug Interactions
   Future<List<DrugInteractionModel>> checkInteractions(
       String newMedicationName,
-      String? activeIngredient,
-      ) async {
+      String? activeIngredient, {
+        String? excludeMedicationId,
+      }) async {
     _detectedInteractions.clear();
 
     try {
       debugPrint('🔍 Checking interactions for: $newMedicationName');
 
-      final currentMedNames = _medications.map((m) => m.name.toLowerCase()).toList();
-      debugPrint('Current medications: $currentMedNames');
+      // Filter out the medication being updated (if any)
+      final List<MedicationModel> currentMeds = excludeMedicationId != null
+          ? _medications.where((m) => m.id != excludeMedicationId).toList()
+          : List.unmodifiable(_medications);
+
+      debugPrint('Current medications: ${currentMeds.map((m) => m.name).toList()}');
 
       final interactions = await _interactionService.checkInteractions(
-        newMedicationName,
-        activeIngredient,
-        currentMedNames,
+        newMedicationName: newMedicationName,
+        newActiveIngredient: activeIngredient,
+        currentMedications: currentMeds,
       );
 
       _detectedInteractions = interactions;
@@ -163,6 +168,7 @@ class MedicationProvider with ChangeNotifier {
         final interactions = await checkInteractions(
           updatedMedication.name,
           updatedMedication.activeIngredient,
+          excludeMedicationId: medicationId,
         );
 
         final severe = interactions.where((i) => i.severity == 'major' || i.severity == 'severe').toList();

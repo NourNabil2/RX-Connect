@@ -3,8 +3,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:alarm/alarm.dart';
+import 'package:pharmacist_assistant/features/add_medication/presenteation/cubit/medication_status.dart';
 import 'package:pharmacist_assistant/features/alarm/service/medication_alarm_service.dart';
 import 'package:pharmacist_assistant/core/widgets/custom_snack_bar.dart';
+import 'package:pharmacist_assistant/features/auth/presentaion/cubit/auth_status.dart';
+import 'package:pharmacist_assistant/features/home/presentation/cubit/adherence_provider.dart';
+import 'package:provider/provider.dart';
 
 class MedicationAlarmScreen extends StatefulWidget {
   final AlarmSettings alarmSettings;
@@ -255,16 +259,40 @@ class _MedicationAlarmScreenState extends State<MedicationAlarmScreen>
     await Alarm.stop(widget.alarmSettings.id);
     if (!mounted) return;
 
-    // TODO: Mark medication as taken
-    // Extract medication info from notification body
-    // final medicationInfo = widget.alarmSettings.notificationSettings.body;
-    // You can parse this or pass it differently
+    try {
+      // 1. استخراج اسم الدواء من نص الإشعار
+      final body = widget.alarmSettings.notificationSettings.body;
+      final medName = body.split(' - ').first;
 
-    CustomSnackBar.show(
-      context,
-      message: 'تم تسجيل الجرعة بنجاح',
-      type: SnackBarType.success,
-    );
+      // 2. البحث عن الدواء في MedicationProvider
+      final medProvider = context.read<MedicationProvider>();
+      final medication = medProvider.medications.firstWhere(
+            (m) => m.name == medName,
+      );
+
+      // 3. تسجيل الجرعة في AdherenceProvider (تم الأخذ)
+      final authProvider = context.read<AuthProvider>();
+      final adherenceProvider = context.read<AdherenceProvider>();
+
+      if (authProvider.currentUser != null) {
+        await adherenceProvider.logDose(
+          userId: authProvider.currentUser!.id,
+          medicationId: medication.id,
+          medicationName: medication.name,
+          status: 'taken', // ⬅️ حالة الجرعة: تم أخذها
+          scheduledTime: widget.alarmSettings.dateTime,
+          actualTime: DateTime.now(),
+        );
+      }
+
+      CustomSnackBar.show(
+        context,
+        message: 'تم تسجيل الجرعة بنجاح ✅',
+        type: SnackBarType.success,
+      );
+    } catch (e) {
+      debugPrint('Error logging dose: $e');
+    }
 
     Navigator.pop(context, true);
   }
@@ -285,6 +313,33 @@ class _MedicationAlarmScreenState extends State<MedicationAlarmScreen>
   void _dismissAlarm() async {
     await Alarm.stop(widget.alarmSettings.id);
     if (!mounted) return;
+
+    try {
+      final body = widget.alarmSettings.notificationSettings.body;
+      final medName = body.split(' - ').first;
+
+      final medProvider = context.read<MedicationProvider>();
+      final medication = medProvider.medications.firstWhere(
+            (m) => m.name == medName,
+      );
+
+      final authProvider = context.read<AuthProvider>();
+      final adherenceProvider = context.read<AdherenceProvider>();
+
+      if (authProvider.currentUser != null) {
+        // تسجيل الجرعة كـ Missed (تم تفويتها)
+        await adherenceProvider.logDose(
+          userId: authProvider.currentUser!.id,
+          medicationId: medication.id,
+          medicationName: medication.name,
+          status: 'missed', // ⬅️ حالة الجرعة: تم تفويتها
+          scheduledTime: widget.alarmSettings.dateTime,
+        );
+      }
+    } catch (e) {
+      debugPrint('Error logging missed dose: $e');
+    }
+
     Navigator.pop(context, false);
   }
 }

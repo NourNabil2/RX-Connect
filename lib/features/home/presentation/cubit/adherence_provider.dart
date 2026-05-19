@@ -22,6 +22,76 @@ class AdherenceProvider with ChangeNotifier {
   String? get errorMessage => _errorMessage;
   bool get isLoading => _status == AdherenceStatus.loading;
 
+
+  bool _isLoadingDose = false;
+  bool get isLoadingDose => _isLoadingDose;
+
+  /// تسجيل جرعة (سواء تم أخذها أو تفويتها)
+  Future<void> logDose({
+    required String userId,
+    required String medicationId,
+    required String medicationName,
+    required String status, // 'taken' or 'missed'
+    required DateTime scheduledTime,
+    DateTime? actualTime,
+  }) async {
+    try {
+      _isLoadingDose = true;
+      notifyListeners();
+
+      // إنشاء سجل الجرعة
+      final logData = {
+        'userId': userId,
+        'medicationId': medicationId,
+        'medicationName': medicationName,
+        'status': status,
+        'scheduledTime': scheduledTime.toIso8601String(),
+        'actualTime': actualTime?.toIso8601String(),
+        'loggedAt': DateTime.now().toIso8601String(),
+      };
+
+      // حفظ في Firestore
+      // بنعمل Collection اسمه adherence_logs ونحفظ جواه
+      await _firestore.collection('adherence_logs').add(logData);
+
+      debugPrint('✅ Dose logged successfully: $status for $medicationName');
+    } catch (e) {
+      debugPrint('❌ Error logging dose: $e');
+    } finally {
+      _isLoadingDose = false;
+      notifyListeners();
+    }
+  }
+
+  /// حساب نسبة الالتزام (Adherence Percentage)
+  Future<double> calculateAdherencePercentage(String userId, {int days = 7}) async {
+    try {
+      final startDate = DateTime.now().subtract(Duration(days: days));
+
+      final snapshot = await _firestore
+          .collection('adherence_logs')
+          .where('userId', isEqualTo: userId)
+          .where('scheduledTime', isGreaterThanOrEqualTo: startDate.toIso8601String())
+          .get();
+
+      if (snapshot.docs.isEmpty) return 0.0;
+
+      int takenDoses = 0;
+      int totalDoses = snapshot.docs.length;
+
+      for (var doc in snapshot.docs) {
+        if (doc.data()['status'] == 'taken') {
+          takenDoses++;
+        }
+      }
+
+      return (takenDoses / totalDoses) * 100;
+    } catch (e) {
+      debugPrint('❌ Error calculating adherence: $e');
+      return 0.0;
+    }
+  }
+
   /// تحميل الالتزام لليوم
   Future<void> loadTodaysAdherence(String userId) async {
     if (_status == AdherenceStatus.loading) return;

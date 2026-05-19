@@ -55,7 +55,7 @@ class _MedicationsTabScreenState extends State<MedicationsTabScreen> with Automa
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // ⬅️ مهم للـ AutomaticKeepAliveClientMixin
+    super.build(context);
 
     final theme = Theme.of(context);
 
@@ -63,23 +63,27 @@ class _MedicationsTabScreenState extends State<MedicationsTabScreen> with Automa
       backgroundColor: theme.scaffoldBackgroundColor,
       body: Consumer<MedicationProvider>(
         builder: (context, medProvider, _) {
-          // ⬅️ Show cached data immediately
-          if (medProvider.medications.isEmpty && !medProvider.isLoading) {
-            return _buildEmptyState();
-          }
-
           return CustomScrollView(
             slivers: [
+              // 1. الأب بار دايماً موجود
               _buildSliverAppBar(medProvider.medications.length),
 
+              // 2. حالة التحميل (Loading)
               if (medProvider.isLoading && medProvider.medications.isEmpty)
                 _buildLoadingState()
-              else ...[
-                _buildFilterChips(),
-                _buildStatisticsCards(medProvider.medications),
-                _buildMedicationsList(medProvider.medications),
-              ],
 
+              // 3. حالة عدم وجود أدوية (Empty State)
+              else if (medProvider.medications.isEmpty)
+                _buildEmptyState()
+
+              // 4. حالة وجود أدوية (Data State)
+              else ...[
+                  _buildFilterChips(),
+                  _buildStatisticsCards(medProvider.medications),
+                  _buildMedicationsList(medProvider.medications),
+                ],
+
+              // مسافة تحتية
               SliverToBoxAdapter(child: SizedBox(height: 20.h)),
             ],
           );

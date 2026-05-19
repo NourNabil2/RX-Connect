@@ -377,9 +377,8 @@ class InteractionWarningCard extends StatelessWidget {
   }
 }
 
-/// Interaction Dialog
+/// Interaction Dialog - Pre-save Warning
 class InteractionDialog extends StatelessWidget {
-  // FIX: Changed MedicationInteraction to DrugInteractionModel
   final List<DrugInteractionModel> interactions;
   final VoidCallback? onAddAnyway;
 
@@ -389,24 +388,25 @@ class InteractionDialog extends StatelessWidget {
     this.onAddAnyway,
   }) : super(key: key);
 
-  static Future<void> show(
+  static Future<bool> show(
       BuildContext context, {
-        // FIX: Changed MedicationInteraction to DrugInteractionModel
         required List<DrugInteractionModel> interactions,
         VoidCallback? onAddAnyway,
       }) async {
-    return showDialog(
+    final result = await showDialog<bool>(
       context: context,
+      barrierDismissible: false,
       builder: (context) => InteractionDialog(
         interactions: interactions,
         onAddAnyway: onAddAnyway,
       ),
     );
+    return result ?? false;
   }
 
   bool get _hasMajorInteraction {
     return interactions.any(
-          (i) => i.severity.toLowerCase() == 'major' || i.severity.toLowerCase() == 'high',
+          (i) => i.severity.toLowerCase() == 'major' || i.severity.toLowerCase() == 'severe',
     );
   }
 
@@ -415,19 +415,26 @@ class InteractionDialog extends StatelessWidget {
     final theme = Theme.of(context);
 
     return AlertDialog(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20.r),
-      ),
-      icon: Icon(
-        Icons.warning_amber_rounded,
-        color: _hasMajorInteraction ? Colors.red : Colors.orange,
-        size: 60.r,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20.r)),
+      icon: Container(
+        width: 80.r,
+        height: 80.r,
+        decoration: BoxDecoration(
+          color: _hasMajorInteraction
+              ? Colors.red.withOpacity(0.1)
+              : Colors.orange.withOpacity(0.1),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          _hasMajorInteraction ? Icons.dangerous_rounded : Icons.warning_amber_rounded,
+          color: _hasMajorInteraction ? Colors.red : Colors.orange,
+          size: 40.r,
+        ),
       ),
       title: Text(
-        '⚠️ تحذير: تفاعل دوائي',
-        style: theme.textTheme.titleLarge?.copyWith(
-          fontWeight: FontWeight.bold,
-        ),
+        _hasMajorInteraction ? '⛔ تفاعل دوائي خطير!' : '⚠️ تحذير: تفاعل دوائي',
+        style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+        textAlign: TextAlign.center,
       ),
       content: SizedBox(
         width: double.maxFinite,
@@ -435,19 +442,43 @@ class InteractionDialog extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ...interactions.map(
-                    (interaction) => InteractionWarningCard(
-                  interaction: interaction,
+              if (_hasMajorInteraction) ...[
+                Container(
+                  padding: EdgeInsets.all(12.r),
+                  decoration: BoxDecoration(
+                    color: Colors.red[50],
+                    borderRadius: BorderRadius.circular(12.r),
+                    border: Border.all(color: Colors.red[200]!),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.block, color: Colors.red, size: 20.r),
+                      SizedBox(width: 8.w),
+                      Expanded(
+                        child: Text(
+                          'هذا التفاعل خطير ويُنصح بعدم إضافة هذا الدواء.',
+                          style: TextStyle(
+                            color: Colors.red[800],
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13.sp,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
+                SizedBox(height: 12.h),
+              ],
+              ...interactions.map(
+                    (interaction) => InteractionWarningCard(interaction: interaction),
               ),
               SizedBox(height: 16.h),
-
-              // Advice box
               Container(
                 padding: EdgeInsets.all(12.r),
                 decoration: BoxDecoration(
                   color: Colors.blue[50],
                   borderRadius: BorderRadius.circular(12.r),
+                  border: Border.all(color: Colors.blue[200]!),
                 ),
                 child: Row(
                   children: [
@@ -455,7 +486,7 @@ class InteractionDialog extends StatelessWidget {
                     SizedBox(width: 12.w),
                     Expanded(
                       child: Text(
-                        'يُنصح بشدة باستشارة الطبيب',
+                        'يُنصح بشدة باستشارة الطبيب أو الصيدلي قبل المتابعة.',
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: Colors.blue[900],
                           fontWeight: FontWeight.bold,
@@ -469,22 +500,35 @@ class InteractionDialog extends StatelessWidget {
           ),
         ),
       ),
+      actionsAlignment: MainAxisAlignment.center,
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('إلغاء'),
-        ),
-        if (!_hasMajorInteraction && onAddAnyway != null)
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              onAddAnyway!();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange,
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () => Navigator.pop(context, false),
+            icon: const Icon(Icons.cancel_outlined),
+            label: const Text('إلغاء الإضافة'),
+            style: OutlinedButton.styleFrom(
+              padding: EdgeInsets.symmetric(vertical: 12.h),
             ),
-            child: const Text('إضافة رغم التحذير'),
           ),
+        ),
+        if (!_hasMajorInteraction && onAddAnyway != null) ...[
+          SizedBox(height: 8.h),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => Navigator.pop(context, true),
+              icon: const Icon(Icons.warning_amber),
+              label: const Text('إضافة رغم التحذير'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+                padding: EdgeInsets.symmetric(vertical: 12.h),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
