@@ -1,15 +1,16 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:pharmacist_assistant/core/widgets/app_buton.dart';
 import 'package:pharmacist_assistant/core/widgets/app_text_feild.dart';
 import 'package:pharmacist_assistant/core/widgets/custom_snack_bar.dart';
 import 'package:pharmacist_assistant/features/add_medication/presenteation/cubit/medication_status.dart';
-import 'package:pharmacist_assistant/features/add_medication/presenteation/widgets/medication_details_header.dart';
 import 'package:pharmacist_assistant/features/add_medication/presenteation/widgets/medication_image_picker.dart';
 import 'package:pharmacist_assistant/features/add_medication/presenteation/widgets/medication_search_field.dart';
 import 'package:pharmacist_assistant/features/auth/presentaion/cubit/auth_status.dart';
 import 'package:provider/provider.dart';
 import 'package:pharmacist_assistant/core/models/medication/medication_model.dart';
+import 'package:pharmacist_assistant/features/home/presentation/cubit/adherence_provider.dart';
 
 // ─────────────────────────────────────────────
 //  CONSTANTS
@@ -59,6 +60,11 @@ class _MedicationDetailsScreenState extends State<MedicationDetailsScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        setState(() {});
+      }
+    });
     _initializeControllers();
     _initializeState();
   }
@@ -90,7 +96,10 @@ class _MedicationDetailsScreenState extends State<MedicationDetailsScreen>
   }
 
   // ─── Medication selected in edit mode ───
-  void _onMedicationSelected(String tradeName, String? activeIngredient) {
+  void _onMedicationSelected(Map<String, dynamic> med) {
+    final tradeName = med['brand_name'] as String;
+    final activeIngredient = med['active_ingredient_name'] as String?;
+
     setState(() {
       _nameController.text = tradeName;
       if (activeIngredient != null && activeIngredient.isNotEmpty) {
@@ -133,6 +142,7 @@ class _MedicationDetailsScreenState extends State<MedicationDetailsScreen>
       barrierDismissible: false,
       builder: (ctx) => InteractionDialog(
         interactions: interactions,
+        medicationName: widget.medication.name,
         onAddAnyway: hasMajor ? null : () => Navigator.pop(ctx, true),
       ),
     ) ??
@@ -166,7 +176,7 @@ class _MedicationDetailsScreenState extends State<MedicationDetailsScreen>
   Widget _buildSliverAppBar() {
     return SliverAppBar(
       pinned: true,
-      expandedHeight: 200.h,
+      expandedHeight: _isEditing ? 150.h : 200.h,
       backgroundColor: _kTealDark,
       leading: IconButton(
         icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
@@ -192,10 +202,12 @@ class _MedicationDetailsScreenState extends State<MedicationDetailsScreen>
       flexibleSpace: FlexibleSpaceBar(
         background: _buildHeroHeader(),
       ),
-      bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(kToolbarHeight),
-        child: _buildTabBar(),
-      ),
+      bottom: _isEditing
+          ? null
+          : PreferredSize(
+              preferredSize: const Size.fromHeight(kToolbarHeight),
+              child: _buildTabBar(),
+            ),
     );
   }
 
@@ -208,9 +220,9 @@ class _MedicationDetailsScreenState extends State<MedicationDetailsScreen>
           end: Alignment.bottomRight,
         ),
       ),
-      padding: EdgeInsets.fromLTRB(20.w, 70.h, 20.w, 16.h),
+      padding: EdgeInsets.fromLTRB(20.w, 80.h, 20.w, 20.h),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // Drug icon
           Container(
@@ -223,7 +235,9 @@ class _MedicationDetailsScreenState extends State<MedicationDetailsScreen>
             child: widget.medication.imageUrl != null
                 ? ClipRRect(
               borderRadius: BorderRadius.circular(14.r),
-              child: Image.asset(widget.medication.imageUrl!, fit: BoxFit.cover),
+              child: widget.medication.imageUrl!.startsWith('http')
+                  ? Image.network(widget.medication.imageUrl!, fit: BoxFit.cover, errorBuilder: (c, e, s) => Icon(Icons.medication_rounded, color: Colors.white, size: 30.r))
+                  : Image.file(File(widget.medication.imageUrl!), fit: BoxFit.cover, errorBuilder: (c, e, s) => Icon(Icons.medication_rounded, color: Colors.white, size: 30.r)),
             )
                 : Icon(Icons.medication_rounded, color: Colors.white, size: 30.r),
           ),
@@ -234,6 +248,7 @@ class _MedicationDetailsScreenState extends State<MedicationDetailsScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
                   widget.medication.name,
@@ -243,11 +258,13 @@ class _MedicationDetailsScreenState extends State<MedicationDetailsScreen>
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                if (widget.medication.activeIngredient?.isNotEmpty ?? false)
+                if (widget.medication.activeIngredient?.isNotEmpty ?? false) ...[
+                  SizedBox(height: 4.h),
                   Text(
                     widget.medication.activeIngredient!,
                     style: TextStyle(color: Colors.white60, fontSize: 13.sp),
                   ),
+                ],
               ],
             ),
           ),
@@ -308,62 +325,79 @@ class _MedicationDetailsScreenState extends State<MedicationDetailsScreen>
   //  BODY
   // ─────────────────────────────────────────────
   Widget _buildBody() {
+    if (_isEditing) {
+      return Padding(
+        padding: EdgeInsets.all(20.w),
+        child: _buildEditMode(),
+      );
+    }
+
     return Padding(
       padding: EdgeInsets.all(20.w),
       child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 220),
-        child: _isEditing ? _buildEditMode() : _buildViewMode(),
+        duration: const Duration(milliseconds: 250),
+        transitionBuilder: (child, animation) {
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.0, 0.05),
+                end: Offset.zero,
+              ).animate(animation),
+              child: child,
+            ),
+          );
+        },
+        child: _buildTabContent(_tabController.index),
       ),
     );
   }
 
-  // ─────────────────────────────────────────────
-  //  VIEW MODE
-  // ─────────────────────────────────────────────
-  Widget _buildViewMode() {
+  Widget _buildTabContent(int index) {
+    switch (index) {
+      case 0:
+        return _buildInfoTab();
+      case 1:
+        return _buildScheduleTab();
+      case 2:
+        return _buildReportsTab();
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  Widget _buildInfoTab() {
     return Column(
-      key: const ValueKey('view'),
+      key: const ValueKey('info_tab'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // ── Stats grid ──
         _buildStatsGrid(),
         SizedBox(height: 24.h),
 
-        // ── Times ──
         _DetailSectionLabel(icon: Icons.schedule_rounded, label: 'مواعيد الجرعات'),
-        SizedBox(height: 10.h),
+        SizedBox(height: 12.h),
         Wrap(
-          spacing: 8.w,
-          runSpacing: 8.h,
+          spacing: 10.w,
+          runSpacing: 10.h,
           children: _times.map((t) => _ViewTimeChip(time: t)).toList(),
         ),
         SizedBox(height: 24.h),
 
-        // ── Notes ──
-        if (widget.medication.notes?.isNotEmpty ?? false) ...[
-          _DetailSectionLabel(icon: Icons.notes_rounded, label: 'ملاحظات'),
-          SizedBox(height: 8.h),
-          Container(
-            width: double.infinity,
-            padding: EdgeInsets.all(14.r),
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor,
-              borderRadius: BorderRadius.circular(12.r),
-              border: Border.all(color: Colors.grey.shade200),
-            ),
-            child: Text(
-              widget.medication.notes!,
-              style: TextStyle(fontSize: 13.sp, height: 1.6, color: Theme.of(context).hintColor),
-            ),
-          ),
-          SizedBox(height: 24.h),
-        ],
+        _buildNotesCard(),
+        SizedBox(height: 24.h),
 
-        // ── Interaction trust badge ──
-        _InteractionTrustBadge(),
-        SizedBox(height: 20.h),
+        _InteractionTrustBadge(
+          onRecheck: () async {
+            setState(() => _isSaving = true);
+            final success = await _validateAndConfirmUpdate();
+            setState(() => _isSaving = false);
+            if (success) {
+              CustomSnackBar.show(context, message: 'الدواء آمن ولا توجد تعارضات', type: SnackBarType.success);
+            }
+          },
+        ),
+        SizedBox(height: 24.h),
 
-        // ── Edit CTA ──
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
@@ -378,24 +412,601 @@ class _MedicationDetailsScreenState extends State<MedicationDetailsScreen>
             ),
           ),
         ),
+        SizedBox(height: 20.h),
       ],
     );
   }
 
-  // ── Stats cards grid ──
+  Widget _buildNotesCard() {
+    final notes = widget.medication.notes;
+    if (notes == null || notes.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: EdgeInsets.all(16.r),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(16.r),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.info_outline, color: Theme.of(context).hintColor, size: 20.r),
+            SizedBox(width: 12.w),
+            Text(
+              'لا توجد ملاحظات إضافية لهذا الدواء',
+              style: TextStyle(
+                fontSize: 13.sp,
+                color: Theme.of(context).hintColor,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(16.r),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(16.r),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.amber.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.note_alt_outlined, color: Colors.amber[850], size: 20.r),
+              SizedBox(width: 8.w),
+              Text(
+                'ملاحظات الاستخدام والتعليمات',
+                style: TextStyle(
+                  fontSize: 14.sp,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.amber[900],
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 10.h),
+          Text(
+            notes,
+            style: TextStyle(
+              fontSize: 13.sp,
+              height: 1.6,
+              color: Colors.amber[950],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScheduleTab() {
+    final authProvider = context.read<AuthProvider>();
+    final userId = authProvider.currentUser?.id ?? '';
+    final adherenceProvider = context.read<AdherenceProvider>();
+
+    return Column(
+      key: const ValueKey('schedule_tab'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _DetailSectionLabel(icon: Icons.hourglass_empty_rounded, label: 'الخط الزمني لجرعات اليوم'),
+        SizedBox(height: 16.h),
+
+        _buildTimelineView(),
+        SizedBox(height: 32.h),
+
+        _DetailSectionLabel(icon: Icons.history_rounded, label: 'سجل النشاط الأخير (آخر 7 أيام)'),
+        SizedBox(height: 16.h),
+
+        FutureBuilder<List<Map<String, dynamic>>>(
+          future: adherenceProvider.getMedicationLogs(userId, widget.medication.id),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24.0),
+                  child: CircularProgressIndicator(color: _kTeal),
+                ),
+              );
+            }
+            if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty) {
+              return Container(
+                width: double.infinity,
+                padding: EdgeInsets.all(20.r),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).cardColor,
+                  borderRadius: BorderRadius.circular(16.r),
+                  border: Border.all(color: Colors.grey.shade200),
+                ),
+                child: Column(
+                  children: [
+                    Icon(Icons.history_toggle_off_rounded, color: Theme.of(context).hintColor, size: 36.r),
+                    SizedBox(height: 10.h),
+                    Text(
+                      'لا توجد سجلات التزام سابقة لهذا الدواء بعد.',
+                      style: TextStyle(fontSize: 12.sp, color: Theme.of(context).hintColor),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            final logs = snapshot.data!;
+            return ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: logs.length > 5 ? 5 : logs.length,
+              separatorBuilder: (_, __) => SizedBox(height: 12.h),
+              itemBuilder: (context, idx) {
+                final log = logs[idx];
+                final status = log['status'] as String;
+                final scheduledTimeStr = log['scheduledTime'] as String;
+                final schedTime = DateTime.parse(scheduledTimeStr);
+
+                final isTaken = status == 'taken';
+                final statusLabel = isTaken ? 'تم أخذها' : 'مُفوّتة';
+                final statusColor = isTaken ? const Color(0xFF10B981) : const Color(0xFFEF4444);
+
+                return Container(
+                  padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).cardColor,
+                    borderRadius: BorderRadius.circular(14.r),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: EdgeInsets.all(8.r),
+                        decoration: BoxDecoration(
+                          color: statusColor.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          isTaken ? Icons.check_circle_rounded : Icons.cancel_rounded,
+                          color: statusColor,
+                          size: 20.r,
+                        ),
+                      ),
+                      SizedBox(width: 12.w),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'جرعة يوم ${schedTime.day}/${schedTime.month}/${schedTime.year}',
+                              style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.bold),
+                            ),
+                            SizedBox(height: 2.h),
+                            Text(
+                              'الموعد المجدول: ${schedTime.hour.toString().padLeft(2, '0')}:${schedTime.minute.toString().padLeft(2, '0')}',
+                              style: TextStyle(fontSize: 11.sp, color: Theme.of(context).hintColor),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
+                        decoration: BoxDecoration(
+                          color: statusColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12.r),
+                        ),
+                        child: Text(
+                          statusLabel,
+                          style: TextStyle(color: statusColor, fontSize: 11.sp, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        ),
+        SizedBox(height: 24.h),
+      ],
+    );
+  }
+
+  Widget _buildTimelineView() {
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: _times.length,
+      itemBuilder: (context, index) {
+        final time = _times[index];
+        final label = '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+        final isMorning = time.hour < 12;
+
+        return IntrinsicHeight(
+          child: Row(
+            children: [
+              SizedBox(
+                width: 70.w,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 16.sp,
+                        fontWeight: FontWeight.bold,
+                        color: _kTealDark,
+                      ),
+                    ),
+                    Text(
+                      isMorning ? 'صباحاً' : 'مساءً',
+                      style: TextStyle(fontSize: 11.sp, color: Theme.of(context).hintColor),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(width: 16.w),
+
+              Column(
+                children: [
+                  Container(
+                    width: 14.r,
+                    height: 14.r,
+                    decoration: BoxDecoration(
+                      color: _kTeal,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _kTeal.withOpacity(0.3),
+                          blurRadius: 6,
+                          spreadRadius: 2,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (index < _times.length - 1)
+                    Expanded(
+                      child: Container(
+                        width: 2.w,
+                        color: _kTeal.withOpacity(0.3),
+                      ),
+                    ),
+                ],
+              ),
+              SizedBox(width: 16.w),
+
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(bottom: index < _times.length - 1 ? 16.h : 0),
+                  child: Container(
+                    padding: EdgeInsets.all(14.r),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).cardColor,
+                      borderRadius: BorderRadius.circular(14.r),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          isMorning ? Icons.wb_sunny_outlined : Icons.nightlight_round_outlined,
+                          color: Colors.orange[400],
+                          size: 20.r,
+                        ),
+                        SizedBox(width: 10.w),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                'الجرعة ${index + 1}',
+                                style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.bold),
+                              ),
+                              SizedBox(height: 2.h),
+                              Text(
+                                'تناول الجرعة المحددة: ${widget.medication.dosage}',
+                                style: TextStyle(fontSize: 11.sp, color: Theme.of(context).hintColor),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildReportsTab() {
+    final authProvider = context.read<AuthProvider>();
+    final userId = authProvider.currentUser?.id ?? '';
+    final adherenceProvider = context.read<AdherenceProvider>();
+
+    return FutureBuilder<double>(
+      future: adherenceProvider.calculateMedicationAdherenceRate(userId, widget.medication.id),
+      builder: (context, snapshot) {
+        final rate = snapshot.data ?? 0.0;
+        final isLoading = snapshot.connectionState == ConnectionState.waiting;
+
+        return Column(
+          key: const ValueKey('reports_tab'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _DetailSectionLabel(icon: Icons.analytics_outlined, label: 'تحليل الالتزام بالدواء'),
+            SizedBox(height: 16.h),
+
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(20.r),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF0F6E56), Color(0xFF085041)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(20.r),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF0F6E56).withOpacity(0.3),
+                    blurRadius: 12,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      SizedBox(
+                        width: 110.r,
+                        height: 110.r,
+                        child: CircularProgressIndicator(
+                          value: isLoading ? 0.0 : rate / 100.0,
+                          strokeWidth: 9.r,
+                          backgroundColor: Colors.white24,
+                          color: const Color(0xFF5DCAA5),
+                        ),
+                      ),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            isLoading ? '...' : '${rate.toStringAsFixed(0)}%',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 26.sp,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            'معدل الالتزام',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 10.sp,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 20.h),
+                  Text(
+                    _getAdherenceFeedback(rate),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14.sp,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  SizedBox(height: 6.h),
+                  Text(
+                    'تم احتساب النسبة بناءً على الجرعات المتوقعة والمسجلة آخر 7 أيام.',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 10.sp,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: 24.h),
+
+            _buildCommitmentStars(rate),
+            SizedBox(height: 24.h),
+
+            _DetailSectionLabel(icon: Icons.calendar_view_week_rounded, label: 'تتبع الالتزام الأسبوعي'),
+            SizedBox(height: 12.h),
+            _buildWeeklyAdherenceGrid(userId),
+            SizedBox(height: 24.h),
+          ],
+        );
+      },
+    );
+  }
+
+  String _getAdherenceFeedback(double rate) {
+    if (rate >= 90) return 'عمل ممتاز! ملتزم بالكامل بالجرعات 🔥';
+    if (rate >= 80) return 'جيد جداً! التزام رائع بالدواء 👍';
+    if (rate >= 60) return 'مستوى التزام مقبول، حاول الحفاظ على المواعيد ⏰';
+    return 'معدل التزام منخفض، يرجى الحرص على تناول الدواء ⚠️';
+  }
+
+  Widget _buildCommitmentStars(double rate) {
+    int starsCount = 0;
+    if (rate >= 95) starsCount = 5;
+    else if (rate >= 80) starsCount = 4;
+    else if (rate >= 60) starsCount = 3;
+    else if (rate >= 40) starsCount = 2;
+    else if (rate > 0) starsCount = 1;
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(16.r),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(16.r),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        children: [
+          Text(
+            'تقييم الالتزام المعنوي',
+            style: TextStyle(fontSize: 12.sp, color: Theme.of(context).hintColor, fontWeight: FontWeight.bold),
+          ),
+          SizedBox(height: 8.h),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(5, (index) {
+              final isLit = index < starsCount;
+              return Icon(
+                isLit ? Icons.star_rounded : Icons.star_border_rounded,
+                color: isLit ? Colors.amber[500] : Colors.grey[300],
+                size: 28.r,
+              );
+            }),
+          ),
+          SizedBox(height: 6.h),
+          Text(
+            starsCount == 5 ? 'مثالي 👑' : (starsCount == 4 ? 'رائع ⭐' : 'تحتاج للمزيد من التركيز 🎯'),
+            style: TextStyle(fontSize: 13.sp, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWeeklyAdherenceGrid(String userId) {
+    final adherenceProvider = context.read<AdherenceProvider>();
+    final daysOfWeek = ['س', 'ح', 'ن', 'ث', 'ر', 'خ', 'ج'];
+    final now = DateTime.now();
+
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: adherenceProvider.getMedicationLogs(userId, widget.medication.id),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator(color: _kTeal));
+        }
+
+        final logs = snapshot.data ?? [];
+        final takenDates = logs
+            .where((l) => l['status'] == 'taken')
+            .map((l) => DateTime.parse(l['scheduledTime'] as String))
+            .map((d) => DateTime(d.year, d.month, d.day))
+            .toSet();
+
+        final missedDates = logs
+            .where((l) => l['status'] == 'missed')
+            .map((l) => DateTime.parse(l['scheduledTime'] as String))
+            .map((d) => DateTime(d.year, d.month, d.day))
+            .toSet();
+
+        return Container(
+          padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 16.h),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: BorderRadius.circular(16.r),
+            border: Border.all(color: Colors.grey.shade200),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: List.generate(7, (index) {
+              final dayDate = now.subtract(Duration(days: 6 - index));
+              final checkDate = DateTime(dayDate.year, dayDate.month, dayDate.day);
+              final isTaken = takenDates.contains(checkDate);
+              final isMissed = missedDates.contains(checkDate);
+
+              final dayIndex = (checkDate.weekday % 7);
+              final dayName = daysOfWeek[dayIndex == 0 ? 1 : (dayIndex == 6 ? 0 : dayIndex + 1)];
+
+              Color color = Colors.grey[200]!;
+              Color textColor = Colors.grey[600]!;
+              IconData? icon;
+
+              if (isTaken) {
+                color = const Color(0xFF10B981);
+                textColor = Colors.white;
+                icon = Icons.check_rounded;
+              } else if (isMissed) {
+                color = const Color(0xFFEF4444);
+                textColor = Colors.white;
+                icon = Icons.close_rounded;
+              }
+
+              return Column(
+                children: [
+                  Text(
+                    '${checkDate.day}/${checkDate.month}',
+                    style: TextStyle(fontSize: 9.sp, color: Theme.of(context).hintColor),
+                  ),
+                  SizedBox(height: 6.h),
+                  Container(
+                    width: 32.r,
+                    height: 32.r,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                      boxShadow: isTaken || isMissed
+                          ? [
+                              BoxShadow(
+                                color: color.withOpacity(0.3),
+                                blurRadius: 6,
+                                offset: const Offset(0, 3),
+                              )
+                            ]
+                          : null,
+                    ),
+                    alignment: Alignment.center,
+                    child: icon != null
+                        ? Icon(icon, size: 14.r, color: Colors.white)
+                        : Text(
+                            dayName,
+                            style: TextStyle(
+                              color: textColor,
+                              fontSize: 11.sp,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                  ),
+                ],
+              );
+            }),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildStatsGrid() {
     final freqLabel = _kFrequencies
         .firstWhere((f) => f.$1 == widget.medication.frequency,
-        orElse: () => (widget.medication.frequency, widget.medication.frequency))
+            orElse: () => (widget.medication.frequency, widget.medication.frequency))
         .$2;
 
     return GridView.count(
       crossAxisCount: 2,
-      mainAxisSpacing: 10.h,
-      crossAxisSpacing: 10.w,
+      mainAxisSpacing: 12.h,
+      crossAxisSpacing: 12.w,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      childAspectRatio: 1.7,
+      childAspectRatio: 1.5,
       children: [
         _StatCard(icon: Icons.medication_liquid_outlined, label: 'الجرعة', value: widget.medication.dosage),
         _StatCard(icon: Icons.repeat_rounded, label: 'التكرار', value: freqLabel),
@@ -403,7 +1014,7 @@ class _MedicationDetailsScreenState extends State<MedicationDetailsScreen>
           icon: Icons.calendar_today_outlined,
           label: 'تاريخ البداية',
           value:
-          '${widget.medication.startDate.day}/${widget.medication.startDate.month}/${widget.medication.startDate.year}',
+              '${widget.medication.startDate.day}/${widget.medication.startDate.month}/${widget.medication.startDate.year}',
         ),
         _StatCard(
           icon: Icons.science_outlined,
@@ -815,35 +1426,81 @@ class _AddTimeChipSmall extends StatelessWidget {
 
 // ─── Interaction trust badge ───
 class _InteractionTrustBadge extends StatelessWidget {
+  final VoidCallback onRecheck;
+
+  const _InteractionTrustBadge({Key? key, required this.onRecheck}) : super(key: key);
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.all(12.r),
+      padding: EdgeInsets.all(14.r),
       decoration: BoxDecoration(
-        color: const Color(0xFFE6F1FB),
-        borderRadius: BorderRadius.circular(12.r),
-        border: Border.all(color: const Color(0xFFB5D4F4)),
+        gradient: const LinearGradient(
+          colors: [Color(0xFFE0F2FE), Color(0xFFF0F9FF)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16.r),
+        border: Border.all(color: const Color(0xFFBAE6FD)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0284C7).withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         children: [
-          const Icon(Icons.shield_outlined, color: Color(0xFF185FA5), size: 20),
-          SizedBox(width: 10.w),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          Stack(
+            alignment: Alignment.center,
             children: [
-              Text(
-                'آخر فحص للتفاعلات الدوائية',
-                style: TextStyle(
-                  fontSize: 12.sp,
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFF0C447C),
+              Container(
+                width: 44.r,
+                height: 44.r,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0284C7).withOpacity(0.1),
+                  shape: BoxShape.circle,
                 ),
               ),
-              Text(
-                'لا تفاعلات مكتشفة',
-                style: TextStyle(fontSize: 11.sp, color: const Color(0xFF185FA5)),
-              ),
+              Icon(Icons.verified_user_rounded, color: const Color(0xFF0284C7), size: 24.r),
             ],
+          ),
+          SizedBox(width: 12.w),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'فحص التفاعلات والتعارضات',
+                  style: TextStyle(
+                    fontSize: 13.sp,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF0369A1),
+                  ),
+                ),
+                SizedBox(height: 2.h),
+                Text(
+                  'تم التحقق وتأكيد سلامة تناول الدواء.',
+                  style: TextStyle(fontSize: 11.sp, color: const Color(0xFF0284C7)),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(width: 8.w),
+          ElevatedButton(
+            onPressed: onRecheck,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0284C7),
+              foregroundColor: Colors.white,
+              elevation: 0,
+              padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
+            ),
+            child: Text(
+              'إعادة فحص',
+              style: TextStyle(fontSize: 11.sp, fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),

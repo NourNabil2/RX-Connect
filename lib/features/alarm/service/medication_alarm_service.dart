@@ -3,6 +3,7 @@
 import 'package:alarm/alarm.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class MedicationAlarmService {
   static final MedicationAlarmService _instance = MedicationAlarmService._();
@@ -37,13 +38,23 @@ class MedicationAlarmService {
     String? imageUrl,
   }) async {
     try {
+      // Read settings from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      final isEnabled = prefs.getBool('alarm_enabled') ?? true;
+      if (!isEnabled) {
+        debugPrint('⏭️ Alarm skipped (alarms are disabled in settings)');
+        return false;
+      }
+      final volume = prefs.getDouble('alarm_volume') ?? 0.8;
+      final vibrate = prefs.getBool('alarm_vibrate') ?? true;
+
       final alarmSettings = AlarmSettings(
         id: _generateAlarmId(medicationId, scheduledTime),
         dateTime: scheduledTime,
         assetAudioPath: 'assets/sounds/alarm.mp3',
         loopAudio: true,
-        vibrate: true,
-        volumeSettings: const VolumeSettings.fixed(volume: 0.8),
+        vibrate: vibrate,
+        volumeSettings: VolumeSettings.fixed(volume: volume),
         androidFullScreenIntent: true,
         notificationSettings: NotificationSettings(
           title: 'وقت الدواء ⏰',
@@ -153,15 +164,19 @@ class MedicationAlarmService {
   }
 
   /// Reschedule alarm (for snooze functionality)
-  Future<void> snoozeAlarm(AlarmSettings alarm, {int minutes = 5}) async {
+  Future<void> snoozeAlarm(AlarmSettings alarm, {int? minutes}) async {
     await Alarm.stop(alarm.id);
 
+    // Use saved snooze duration from settings
+    final prefs = await SharedPreferences.getInstance();
+    final snoozeDuration = minutes ?? prefs.getInt('alarm_snooze_duration') ?? 5;
+
     final newSettings = alarm.copyWith(
-      dateTime: DateTime.now().add(Duration(minutes: minutes)),
+      dateTime: DateTime.now().add(Duration(minutes: snoozeDuration)),
     );
 
     await Alarm.set(alarmSettings: newSettings);
-    debugPrint('⏰ Snoozed alarm #${alarm.id} for $minutes minutes');
+    debugPrint('⏰ Snoozed alarm #${alarm.id} for $snoozeDuration minutes');
   }
 
   /// Reschedule recurring alarms (daily/weekly)

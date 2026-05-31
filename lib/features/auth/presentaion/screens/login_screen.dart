@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:pharmacist_assistant/core/routes/app_routes.dart';
 import 'package:pharmacist_assistant/core/theme/colors.dart';
@@ -22,6 +23,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _isLoading = false;
   bool _obscurePassword = true;
+  String _selectedRole = 'patient';
 
   @override
   void dispose() {
@@ -42,7 +44,30 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, AppRoutes.patientHome);
+
+      // Check user role to route correctly
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+        final actualRole = userDoc.data()?['role'] ?? 'patient';
+        if (!mounted) return;
+        
+        if (actualRole != _selectedRole) {
+          await FirebaseAuth.instance.signOut();
+          String error = _selectedRole == 'doctor' ? 'هذا الحساب ليس مسجلاً كطبيب' : 'هذا الحساب ليس مسجلاً كمريض';
+          CustomSnackBar.show(context, message: error, type: SnackBarType.error);
+          setState(() => _isLoading = false);
+          return;
+        }
+
+        if (actualRole == 'doctor') {
+          Navigator.pushReplacementNamed(context, AppRoutes.doctorHome);
+        } else {
+          Navigator.pushReplacementNamed(context, AppRoutes.patientHome);
+        }
+      } else {
+        Navigator.pushReplacementNamed(context, AppRoutes.patientHome);
+      }
     } on FirebaseAuthException catch (e) {
       String message = 'حدث خطأ في تسجيل الدخول';
       if (e.code == 'user-not-found') {
@@ -98,7 +123,33 @@ class _LoginScreenState extends State<LoginScreen> {
                       color: Colors.grey[600],
                     ),
                   ),
-                  SizedBox(height: 48.h),
+                  SizedBox(height: 32.h),
+
+                  // ─── Role Selection ───
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _RoleSelectionCard(
+                          icon: Icons.person_rounded,
+                          label: 'مريض',
+                          subtitle: 'دخول المريض',
+                          isSelected: _selectedRole == 'patient',
+                          onTap: () => setState(() => _selectedRole = 'patient'),
+                        ),
+                      ),
+                      SizedBox(width: 12.w),
+                      Expanded(
+                        child: _RoleSelectionCard(
+                          icon: Icons.medical_services_rounded,
+                          label: 'طبيب',
+                          subtitle: 'دخول الطبيب',
+                          isSelected: _selectedRole == 'doctor',
+                          onTap: () => setState(() => _selectedRole = 'doctor'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 32.h),
 
                   // Email Field
                   AppTextFieldFactory.email(
@@ -176,6 +227,87 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RoleSelectionCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _RoleSelectionCard({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+        padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 12.w),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? ColorsManager.primaryColor.withOpacity(0.08)
+              : Colors.grey[50],
+          borderRadius: BorderRadius.circular(12.r),
+          border: Border.all(
+            color: isSelected
+                ? ColorsManager.primaryColor
+                : Colors.grey[300]!,
+            width: isSelected ? 2 : 1,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: ColorsManager.primaryColor.withOpacity(0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              size: 28.r,
+              color: isSelected
+                  ? ColorsManager.primaryColor
+                  : Colors.grey[500],
+            ),
+            SizedBox(height: 8.h),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 14.sp,
+                fontWeight: FontWeight.bold,
+                color: isSelected
+                    ? ColorsManager.primaryColor
+                    : Colors.grey[700],
+              ),
+            ),
+            SizedBox(height: 2.h),
+            Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 10.sp,
+                color: isSelected
+                    ? ColorsManager.primaryColor.withOpacity(0.7)
+                    : Colors.grey[500],
+              ),
+            ),
+          ],
         ),
       ),
     );

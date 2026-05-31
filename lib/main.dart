@@ -7,7 +7,10 @@ import 'package:pharmacist_assistant/features/add_medication/presenteation/cubit
 import 'package:pharmacist_assistant/features/auth/presentaion/cubit/auth_status.dart';
 import 'package:pharmacist_assistant/features/auth/presentaion/screens/login_screen.dart';
 import 'package:pharmacist_assistant/features/dashboard/presentation/dashboard.dart';
+import 'package:pharmacist_assistant/features/dashboard/presentation/doctor_dashboard.dart';
 import 'package:pharmacist_assistant/features/home/presentation/cubit/adherence_provider.dart';
+import 'package:pharmacist_assistant/features/chat/presentation/cubit/chat_provider.dart';
+import 'package:pharmacist_assistant/features/settings/settings_provider.dart';
 import 'package:provider/provider.dart';
 import 'core/theme/app_theme.dart';
 import 'features/alarm/screen/medication_alarm_screen.dart';
@@ -124,6 +127,8 @@ class _VirtualPharmacistAppState extends State<VirtualPharmacistApp> with Widget
             ChangeNotifierProvider(create: (_) => AuthProvider()),
             ChangeNotifierProvider(create: (_) => MedicationProvider()),
             ChangeNotifierProvider(create: (_) => AdherenceProvider()),
+            ChangeNotifierProvider(create: (_) => ChatProvider()),
+            ChangeNotifierProvider(create: (_) => SettingsProvider()),
           ],
           child: MaterialApp(
           title: 'Virtual Pharmacist',
@@ -141,10 +146,10 @@ class _VirtualPharmacistAppState extends State<VirtualPharmacistApp> with Widget
                 // توجيه اليوزر حسب نوعه (مريض ولا دكتور)
                 if (authProvider.isPatient) {
                   return const PatientHomeScreen();
+                } else if (authProvider.isDoctor) {
+                  return const DoctorDashboardScreen();
                 } else {
-                  // لما تجهز شاشة الدكتور ابقى حطها هنا
-                  // return const DoctorHomeScreen();
-                  return const Scaffold(body: Center(child: Text('Doctor Home - Soon')));
+                  return const PatientHomeScreen();
                 }
               }
               else {

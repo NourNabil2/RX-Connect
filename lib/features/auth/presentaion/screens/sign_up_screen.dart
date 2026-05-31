@@ -26,8 +26,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _specializationController = TextEditingController();
+  final _hospitalController = TextEditingController();
 
   bool _isLoading = false;
+  String _selectedRole = 'patient'; // 'patient' or 'doctor'
 
   @override
   void dispose() {
@@ -35,6 +38,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _specializationController.dispose();
+    _hospitalController.dispose();
     super.dispose();
   }
 
@@ -55,30 +60,44 @@ class _SignUpScreenState extends State<SignUpScreen> {
       if (user == null) return;
 
       // إنشاء نموذج المستخدم
-      final newUser = UserModel(
+      final userData = UserModel(
         id: user.uid,
         name: _nameController.text.trim(),
         email: _emailController.text.trim(),
         phoneNumber: null,
-        role: 'patient', // يمكن تغييره لاحقًا
+        role: _selectedRole,
         dateOfBirth: null,
         chronicConditions: null,
         connectedDoctorId: null,
         profileImageUrl: null,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
-      );
+      ).toJson();
+
+      // إضافة حقول الطبيب الإضافية
+      if (_selectedRole == 'doctor') {
+        userData['specialization'] = _specializationController.text.trim().isNotEmpty
+            ? _specializationController.text.trim()
+            : 'طبيب عام';
+        userData['hospital'] = _hospitalController.text.trim().isNotEmpty
+            ? _hospitalController.text.trim()
+            : null;
+      }
 
       // حفظ البيانات في Firestore
       await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
-          .set(newUser.toJson());
+          .set(userData);
 
       if (!mounted) return;
 
-      // الانتقال للصفحة الرئيسية
-      Navigator.pushReplacementNamed(context, AppRoutes.patientHome);
+      // الانتقال للصفحة الرئيسية حسب الدور
+      if (_selectedRole == 'doctor') {
+        Navigator.pushReplacementNamed(context, AppRoutes.doctorHome);
+      } else {
+        Navigator.pushReplacementNamed(context, AppRoutes.patientHome);
+      }
     } on FirebaseAuthException catch (e) {
       String message = 'حدث خطأ أثناء إنشاء الحساب';
       if (e.code == 'weak-password') {
@@ -140,7 +159,71 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       color: Colors.grey[600],
                     ),
                   ),
-                  SizedBox(height: 48.h),
+                  SizedBox(height: 32.h),
+
+                  // ─── Role Selection ───
+                  Text(
+                    'نوع الحساب',
+                    style: TextStyle(
+                      fontSize: 14.sp,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey[700],
+                    ),
+                  ),
+                  SizedBox(height: 12.h),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _RoleSelectionCard(
+                          icon: Icons.person_rounded,
+                          label: 'مريض',
+                          subtitle: 'تتبع أدويتك',
+                          isSelected: _selectedRole == 'patient',
+                          onTap: () => setState(() => _selectedRole = 'patient'),
+                        ),
+                      ),
+                      SizedBox(width: 12.w),
+                      Expanded(
+                        child: _RoleSelectionCard(
+                          icon: Icons.medical_services_rounded,
+                          label: 'طبيب',
+                          subtitle: 'تابع مرضاك',
+                          isSelected: _selectedRole == 'doctor',
+                          onTap: () => setState(() => _selectedRole = 'doctor'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 16.h),
+
+                  // ─── Doctor Extra Fields ───
+                  AnimatedCrossFade(
+                    duration: const Duration(milliseconds: 300),
+                    crossFadeState: _selectedRole == 'doctor'
+                        ? CrossFadeState.showFirst
+                        : CrossFadeState.showSecond,
+                    firstChild: Column(
+                      children: [
+                        AppTextField(
+                          title: 'التخصص',
+                          hintText: 'مثال: أخصائي باطنة',
+                          controller: _specializationController,
+                          prefixIcon: Icon(Icons.local_hospital_outlined, size: 20.r),
+                          keyboardType: TextInputType.text,
+                        ),
+                        SizedBox(height: 16.h),
+                        AppTextField(
+                          title: 'المستشفى / العيادة',
+                          hintText: 'مثال: مستشفى الملك فهد',
+                          controller: _hospitalController,
+                          prefixIcon: Icon(Icons.business_outlined, size: 20.r),
+                          keyboardType: TextInputType.text,
+                        ),
+                        SizedBox(height: 16.h),
+                      ],
+                    ),
+                    secondChild: const SizedBox.shrink(),
+                  ),
 
                   // Name Field
                   AppTextField(
@@ -254,6 +337,88 @@ class _SignUpScreenState extends State<SignUpScreen> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Role Selection Card Widget ───
+class _RoleSelectionCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _RoleSelectionCard({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+        padding: EdgeInsets.symmetric(vertical: 16.h, horizontal: 12.w),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? ColorsManager.primaryColor.withOpacity(0.08)
+              : Colors.grey[50],
+          borderRadius: BorderRadius.circular(12.r),
+          border: Border.all(
+            color: isSelected
+                ? ColorsManager.primaryColor
+                : Colors.grey[300]!,
+            width: isSelected ? 2 : 1,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: ColorsManager.primaryColor.withOpacity(0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              size: 28.r,
+              color: isSelected
+                  ? ColorsManager.primaryColor
+                  : Colors.grey[500],
+            ),
+            SizedBox(height: 8.h),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 14.sp,
+                fontWeight: FontWeight.bold,
+                color: isSelected
+                    ? ColorsManager.primaryColor
+                    : Colors.grey[700],
+              ),
+            ),
+            SizedBox(height: 2.h),
+            Text(
+              subtitle,
+              style: TextStyle(
+                fontSize: 10.sp,
+                color: isSelected
+                    ? ColorsManager.primaryColor.withOpacity(0.7)
+                    : Colors.grey[500],
+              ),
+            ),
+          ],
         ),
       ),
     );

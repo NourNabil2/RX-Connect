@@ -2,7 +2,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-// Note: We assume these models are available and correctly defined elsewhere
+import 'package:provider/provider.dart';
+import 'package:pharmacist_assistant/features/auth/presentaion/cubit/auth_status.dart';
+import 'package:pharmacist_assistant/features/chat/presentation/cubit/chat_provider.dart';
+import 'package:pharmacist_assistant/features/chat/presentation/screens/chat_screen.dart';
+import 'package:pharmacist_assistant/features/chat/presentation/screens/doctors_directory_screen.dart';
 import 'package:pharmacist_assistant/core/models/medication/medication_model.dart';
 import 'package:pharmacist_assistant/core/utils/extension.dart'; // Contains .hhmm() extension
 import 'dart:io';
@@ -22,11 +26,13 @@ import 'dart:io';
 /// Image Picker Widget
 class MedicationImagePicker extends StatelessWidget {
   final File? selectedImage;
+  final String? networkImageUrl;
   final VoidCallback onTap;
 
   const MedicationImagePicker({
     Key? key,
     required this.selectedImage,
+    this.networkImageUrl,
     required this.onTap,
   }) : super(key: key);
 
@@ -57,7 +63,23 @@ class MedicationImagePicker extends StatelessWidget {
             borderRadius: BorderRadius.circular(16.r),
             child: Image.file(selectedImage!, fit: BoxFit.cover),
           )
-              : Column(
+              : networkImageUrl != null && networkImageUrl!.isNotEmpty
+              ? ClipRRect(
+            borderRadius: BorderRadius.circular(16.r),
+            child: Image.network(
+              networkImageUrl!,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) => _buildPlaceholder(theme),
+            ),
+          )
+              : _buildPlaceholder(theme),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlaceholder(ThemeData theme) {
+    return Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
@@ -73,9 +95,6 @@ class MedicationImagePicker extends StatelessWidget {
                 ),
               ),
             ],
-          ),
-        ),
-      ),
     );
   }
 }
@@ -381,16 +400,19 @@ class InteractionWarningCard extends StatelessWidget {
 class InteractionDialog extends StatelessWidget {
   final List<DrugInteractionModel> interactions;
   final VoidCallback? onAddAnyway;
+  final String medicationName;
 
   const InteractionDialog({
     Key? key,
     required this.interactions,
     this.onAddAnyway,
+    required this.medicationName,
   }) : super(key: key);
 
   static Future<bool> show(
       BuildContext context, {
         required List<DrugInteractionModel> interactions,
+        required String medicationName,
         VoidCallback? onAddAnyway,
       }) async {
     final result = await showDialog<bool>(
@@ -398,6 +420,7 @@ class InteractionDialog extends StatelessWidget {
       barrierDismissible: false,
       builder: (context) => InteractionDialog(
         interactions: interactions,
+        medicationName: medicationName,
         onAddAnyway: onAddAnyway,
       ),
     );
@@ -502,6 +525,22 @@ class InteractionDialog extends StatelessWidget {
       ),
       actionsAlignment: MainAxisAlignment.center,
       actions: [
+        // Contact Doctor Button
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: () => _contactDoctor(context),
+            icon: const Icon(Icons.medical_services_outlined),
+            label: const Text('استشارة الطبيب عبر الشات', style: TextStyle(fontWeight: FontWeight.bold)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0F6E56),
+              foregroundColor: Colors.white,
+              padding: EdgeInsets.symmetric(vertical: 12.h),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
+            ),
+          ),
+        ),
+        SizedBox(height: 8.h),
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
@@ -510,6 +549,7 @@ class InteractionDialog extends StatelessWidget {
             label: const Text('إلغاء الإضافة'),
             style: OutlinedButton.styleFrom(
               padding: EdgeInsets.symmetric(vertical: 12.h),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
             ),
           ),
         ),
@@ -525,11 +565,139 @@ class InteractionDialog extends StatelessWidget {
                 backgroundColor: Colors.orange,
                 foregroundColor: Colors.white,
                 padding: EdgeInsets.symmetric(vertical: 12.h),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.r)),
               ),
             ),
           ),
         ],
       ],
+    );
+  }
+
+  void _contactDoctor(BuildContext context) async {
+    final authProvider = context.read<AuthProvider>();
+    final chatProvider = context.read<ChatProvider>();
+    final currentUser = authProvider.currentUser;
+
+    if (currentUser == null) return;
+
+    // Fetch the patient's doctors
+    final doctorsQuery = await chatProvider.getMyDoctors(currentUser.id).first;
+    final doctors = doctorsQuery.docs;
+
+    if (!context.mounted) return;
+
+    if (doctors.isEmpty) {
+      // No doctors, ask to search for one
+      showDialog(
+        context: context,
+        builder: (ctx) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.r)),
+            title: const Text('لا يوجد أطباء'),
+            content: const Text('ليس لديك أي محادثات مع أطباء حالياً، هل تود البحث عن طبيب لاستشارته؟'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('إلغاء'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(ctx); // Close dialog
+                  Navigator.pop(context, false); // Close InteractionDialog
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const DoctorsDirectoryScreen()),
+                  );
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F6E56)),
+                child: const Text('البحث عن طبيب', style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          ),
+        ),
+      );
+    } else if (doctors.length == 1) {
+      // Only 1 doctor, send and navigate
+      final docData = doctors.first.data() as Map<String, dynamic>;
+      _sendAlertAndNavigate(context, docData, currentUser, chatProvider);
+    } else {
+      // Multiple doctors, show a bottom sheet to select
+      showModalBottomSheet(
+        context: context,
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20.r)),
+        ),
+        builder: (ctx) => Directionality(
+          textDirection: TextDirection.rtl,
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 20.h, horizontal: 16.w),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'اختر الطبيب للاستشارة',
+                  style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold),
+                ),
+                SizedBox(height: 16.h),
+                ...doctors.map((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: const Color(0xFF0F6E56).withOpacity(0.1),
+                      child: const Icon(Icons.medical_services_rounded, color: Color(0xFF0F6E56)),
+                    ),
+                    title: Text('د. ${data['doctorName']}'),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _sendAlertAndNavigate(context, data, currentUser, chatProvider);
+                    },
+                  );
+                }).toList(),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+  }
+
+  void _sendAlertAndNavigate(
+      BuildContext context,
+      Map<String, dynamic> docData,
+      UserModel currentUser,
+      ChatProvider chatProvider) async {
+    
+    final doctorId = docData['doctorId'] as String;
+    final doctorName = docData['doctorName'] as String;
+    final chatId = docData['chatId'] as String;
+
+    final interactionsMap = interactions.map((i) => i.toJson()).toList();
+
+    await chatProvider.sendConflictAlert(
+      patientId: currentUser.id,
+      patientName: currentUser.name,
+      doctorId: doctorId,
+      medicationName: medicationName,
+      interactions: interactionsMap,
+    );
+
+    if (!context.mounted) return;
+    
+    // Close the dialog and open the chat
+    Navigator.pop(context, false);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(
+          chatId: chatId,
+          otherUserName: 'د. $doctorName',
+          currentUserId: currentUser.id,
+          currentUserRole: 'patient',
+        ),
+      ),
     );
   }
 }

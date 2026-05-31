@@ -318,7 +318,7 @@ class HomeAppBarWidget extends StatelessWidget {
       final rate = await adherence.calculateAdherenceRate(userId, days: 7);
 
       // حساب الـ streak
-      final streak = await _calculateStreak(context, userId);
+      final streak = await adherence.calculateStreak(userId);
 
       return {
         'rate': rate,
@@ -327,52 +327,6 @@ class HomeAppBarWidget extends StatelessWidget {
     } catch (e) {
       debugPrint('Error in _calculateAdherenceData: $e');
       return {'rate': 0.0, 'streak': 0};
-    }
-  }
-
-  Future<int> _calculateStreak(BuildContext context, String userId) async {
-    try {
-      final firestore = FirebaseFirestore.instance;
-      final now = DateTime.now();
-      int streak = 0;
-
-      // نبدأ من اليوم ونرجع للوراء
-      for (int i = 0; i < 30; i++) {
-        final date = now.subtract(Duration(days: i));
-        final startOfDay = DateTime(date.year, date.month, date.day);
-        final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59);
-
-        final snapshot = await firestore
-            .collection('adherence_logs')
-            .where('userId', isEqualTo: userId)
-            .where('scheduledTime',
-            isGreaterThanOrEqualTo: startOfDay.toIso8601String())
-            .where('scheduledTime',
-            isLessThanOrEqualTo: endOfDay.toIso8601String())
-            .get();
-
-        if (snapshot.docs.isEmpty) {
-          // لو مفيش أدوية في اليوم ده، نكمل
-          continue;
-        }
-
-        final taken = snapshot.docs.where((doc) => doc['status'] == 'taken').length;
-        final total = snapshot.docs.length;
-        final dayRate = (taken / total) * 100;
-
-        // لو الالتزام أكثر من 80% نعتبره يوم ناجح
-        if (dayRate >= 80) {
-          streak++;
-        } else {
-          // لو فشل يوم، نوقف الـ streak
-          break;
-        }
-      }
-
-      return streak;
-    } catch (e) {
-      debugPrint('Error calculating streak: $e');
-      return 0;
     }
   }
 

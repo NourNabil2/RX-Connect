@@ -63,33 +63,67 @@ class AdherenceProvider with ChangeNotifier {
     }
   }
 
-  /// حساب نسبة الالتزام (Adherence Percentage)
-  Future<double> calculateAdherencePercentage(String userId, {int days = 7}) async {
+  /// مساعدة لجلب أدوية المستخدم
+  Future<List<MedicationModel>> _getUserMedications(String userId) async {
     try {
-      final startDate = DateTime.now().subtract(Duration(days: days));
-
       final snapshot = await _firestore
-          .collection('adherence_logs')
-          .where('userId', isEqualTo: userId)
-          .where('scheduledTime', isGreaterThanOrEqualTo: startDate.toIso8601String())
+          .collection('medications')
+          .doc(userId)
+          .collection('list')
           .get();
-
-      if (snapshot.docs.isEmpty) return 0.0;
-
-      int takenDoses = 0;
-      int totalDoses = snapshot.docs.length;
-
-      for (var doc in snapshot.docs) {
-        if (doc.data()['status'] == 'taken') {
-          takenDoses++;
+      return snapshot.docs.map((d) {
+        try {
+          return MedicationModel.fromJson(d.data());
+        } catch (_) {
+          return null;
         }
+      }).whereType<MedicationModel>().toList();
+    } catch (e) {
+      debugPrint('Error getting medications: $e');
+      return [];
+    }
+  }
+
+  /// حساب الجرعات المتوقعة ليوم معين
+  int _getExpectedDosesForDay(List<MedicationModel> medications, DateTime date) {
+    int expected = 0;
+    final checkDate = DateTime(date.year, date.month, date.day);
+    for (var med in medications) {
+      if (med.frequency == 'as_needed') continue;
+
+      final medStart = DateTime(med.startDate.year, med.startDate.month, med.startDate.day);
+      if (checkDate.isBefore(medStart)) continue;
+
+      if (med.endDate != null) {
+        final medEnd = DateTime(med.endDate!.year, med.endDate!.month, med.endDate!.day);
+        if (checkDate.isAfter(medEnd)) continue;
+      }
+      
+      if (!med.isActive) {
+        final medUpdated = DateTime(med.updatedAt.year, med.updatedAt.month, med.updatedAt.day);
+        if (checkDate.isAfter(medUpdated)) continue;
       }
 
-      return (takenDoses / totalDoses) * 100;
-    } catch (e) {
-      debugPrint('❌ Error calculating adherence: $e');
-      return 0.0;
+      bool shouldTake = false;
+      if (med.frequency == 'daily') {
+        shouldTake = true;
+      } else if (med.frequency == 'alternate_days') {
+        final diff = checkDate.difference(medStart).inDays;
+        if (diff % 2 == 0) shouldTake = true;
+      } else if (med.frequency == 'weekly') {
+        if (checkDate.weekday == medStart.weekday) shouldTake = true;
+      }
+
+      if (shouldTake) {
+        expected += med.times.length;
+      }
     }
+    return expected;
+  }
+
+  /// حساب نسبة الالتزام (Adherence Percentage)
+  Future<double> calculateAdherencePercentage(String userId, {int days = 7}) async {
+    return await calculateAdherenceRate(userId, days: days);
   }
 
   /// تحميل الالتزام لليوم
@@ -241,27 +275,33 @@ class AdherenceProvider with ChangeNotifier {
           isLessThanOrEqualTo: now.toIso8601String())
           .get();
 
-      if (snapshot.docs.isEmpty) {
-        debugPrint('No adherence logs found for user $userId');
-        return 0.0;
-      }
-
       final taken = snapshot.docs.where((doc) {
         try {
           return doc.data()['status'] == 'taken';
         } catch (e) {
-          debugPrint('Error reading doc status: $e');
           return false;
         }
       }).length;
 
-      final total = snapshot.docs.length;
+      final medications = await _getUserMedications(userId);
+      int expectedDoses = 0;
 
-      final rate = total > 0 ? (taken / total) * 100 : 0.0;
+      for (int i = 0; i < days; i++) {
+        final date = now.subtract(Duration(days: i));
+        expectedDoses += _getExpectedDosesForDay(medications, date);
+      }
 
-      debugPrint('📊 Adherence Rate: ${rate.toStringAsFixed(1)}% ($taken/$total)');
+      if (expectedDoses == 0) {
+        final totalLogs = snapshot.docs.length;
+        if (totalLogs == 0) return 0.0;
+        return (taken / totalLogs) * 100.0;
+      }
 
-      return rate;
+      final rate = (taken / expectedDoses) * 100;
+      final finalRate = rate > 100.0 ? 100.0 : rate;
+      
+      debugPrint('📊 Adherence Rate: ${finalRate.toStringAsFixed(1)}% ($taken taken / $expectedDoses expected)');
+      return finalRate;
     } catch (e) {
       debugPrint('❌ Error calculating rate: $e');
       return 0.0;
@@ -273,11 +313,14 @@ class AdherenceProvider with ChangeNotifier {
     try {
       final now = DateTime.now();
       int streak = 0;
+      final medications = await _getUserMedications(userId);
 
       for (int i = 0; i < 30; i++) {
         final date = now.subtract(Duration(days: i));
         final startOfDay = DateTime(date.year, date.month, date.day);
         final endOfDay = DateTime(date.year, date.month, date.day, 23, 59, 59);
+
+        final expected = _getExpectedDosesForDay(medications, startOfDay);
 
         final snapshot = await _firestore
             .collection('adherence_logs')
@@ -288,18 +331,30 @@ class AdherenceProvider with ChangeNotifier {
             isLessThanOrEqualTo: endOfDay.toIso8601String())
             .get();
 
-        if (snapshot.docs.isEmpty) {
-          continue;
+        if (expected == 0 && snapshot.docs.isEmpty) {
+          continue; // No expected doses and no logs, doesn't break the streak
         }
 
-        final taken = snapshot.docs.where((doc) => doc['status'] == 'taken').length;
-        final total = snapshot.docs.length;
-        final dayRate = (taken / total) * 100;
+        final taken = snapshot.docs.where((doc) {
+          try {
+             return doc.data()['status'] == 'taken';
+          } catch(e) {
+             return false;
+          }
+        }).length;
+
+        double dayRate = 0.0;
+        if (expected > 0) {
+          dayRate = (taken / expected) * 100;
+        } else if (snapshot.docs.isNotEmpty) {
+          final total = snapshot.docs.length;
+          dayRate = (taken / total) * 100;
+        }
 
         if (dayRate >= 80) {
           streak++;
         } else {
-          break;
+          break; // Streak broken
         }
       }
 
@@ -308,6 +363,86 @@ class AdherenceProvider with ChangeNotifier {
     } catch (e) {
       debugPrint('❌ Error calculating streak: $e');
       return 0;
+    }
+  }
+
+  /// حساب نسبة الالتزام لدواء معين خلال فترة أيام محددة
+  Future<double> calculateMedicationAdherenceRate(String userId, String medicationId, {int days = 7}) async {
+    try {
+      final now = DateTime.now();
+      final startDate = now.subtract(Duration(days: days));
+
+      final snapshot = await _firestore
+          .collection('adherence_logs')
+          .where('userId', isEqualTo: userId)
+          .where('medicationId', isEqualTo: medicationId)
+          .where('scheduledTime', isGreaterThanOrEqualTo: startDate.toIso8601String())
+          .where('scheduledTime', isLessThanOrEqualTo: now.toIso8601String())
+          .get();
+
+      final taken = snapshot.docs.where((doc) {
+        try {
+          return doc.data()['status'] == 'taken';
+        } catch (e) {
+          return false;
+        }
+      }).length;
+
+      final medications = await _getUserMedications(userId);
+      final medicationList = medications.where((m) => m.id == medicationId).toList();
+      if (medicationList.isEmpty) {
+        final totalLogs = snapshot.docs.length;
+        if (totalLogs == 0) return 0.0;
+        return (taken / totalLogs) * 100.0;
+      }
+
+      int expectedDoses = 0;
+      for (int i = 0; i < days; i++) {
+        final date = now.subtract(Duration(days: i));
+        expectedDoses += _getExpectedDosesForDay(medicationList, date);
+      }
+
+      if (expectedDoses == 0) {
+        final totalLogs = snapshot.docs.length;
+        if (totalLogs == 0) return 0.0;
+        return (taken / totalLogs) * 100.0;
+      }
+
+      final rate = (taken / expectedDoses) * 100.0;
+      final finalRate = rate > 100.0 ? 100.0 : rate;
+
+      debugPrint('📊 Medication $medicationId Adherence Rate: ${finalRate.toStringAsFixed(1)}% ($taken taken / $expectedDoses expected)');
+      return finalRate;
+    } catch (e) {
+      debugPrint('❌ Error calculating medication rate: $e');
+      return 0.0;
+    }
+  }
+
+  /// جلب سجل الجرعات لدواء معين
+  Future<List<Map<String, dynamic>>> getMedicationLogs(String userId, String medicationId, {int days = 7}) async {
+    try {
+      final now = DateTime.now();
+      final startDate = now.subtract(Duration(days: days));
+
+      final snapshot = await _firestore
+          .collection('adherence_logs')
+          .where('userId', isEqualTo: userId)
+          .where('medicationId', isEqualTo: medicationId)
+          .where('scheduledTime', isGreaterThanOrEqualTo: startDate.toIso8601String())
+          .where('scheduledTime', isLessThanOrEqualTo: now.toIso8601String())
+          .get();
+
+      final list = snapshot.docs.map((doc) => doc.data()).toList();
+      list.sort((a, b) {
+        final aTime = DateTime.parse(a['scheduledTime'] as String);
+        final bTime = DateTime.parse(b['scheduledTime'] as String);
+        return bTime.compareTo(aTime);
+      });
+      return list;
+    } catch (e) {
+      debugPrint('❌ Error getting medication logs: $e');
+      return [];
     }
   }
 

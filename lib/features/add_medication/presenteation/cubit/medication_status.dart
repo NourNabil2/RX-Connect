@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:pharmacist_assistant/core/models/medication/medication_model.dart';
 import 'package:pharmacist_assistant/core/service/DrugInteractionService.dart';
 import 'package:pharmacist_assistant/features/alarm/service/medication_alarm_service.dart';
+import 'package:pharmacist_assistant/features/chat/presentation/cubit/chat_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import '../../../../core/db/database_helper.dart';
@@ -431,7 +432,7 @@ class MedicationProvider with ChangeNotifier {
     }).toList();
   }
 
-  /// Notify Doctor about Interaction
+  /// Notify Doctor about Interaction via Chat
   Future<void> _notifyDoctorAboutInteraction(
       String userId,
       MedicationModel medication,
@@ -439,24 +440,38 @@ class MedicationProvider with ChangeNotifier {
       ) async {
     try {
       final userDoc = await _firestore.collection('users').doc(userId).get();
-      final doctorId = userDoc.data()?['connectedDoctorId'];
+      final patientName = userDoc.data()?['name'] ?? 'مريض';
 
-      if (doctorId == null) {
-        debugPrint('⚠️ No connected doctor found');
+      // Get all doctors this patient is connected to
+      final chatsQuery = await _firestore
+          .collection('chats')
+          .where('patientId', isEqualTo: userId)
+          .get();
+
+      if (chatsQuery.docs.isEmpty) {
+        debugPrint('⚠️ No connected doctors found to notify');
         return;
       }
 
-      await _firestore.collection('notifications').doc().set({
-        'doctorId': doctorId,
-        'patientId': userId,
-        'type': 'drug_interaction_warning',
-        'medicationName': medication.name,
-        'interactions': interactions.map((i) => i.toJson()).toList(),
-        'createdAt': DateTime.now().toIso8601String(),
-        'read': false,
-      });
+      final chatProvider = ChatProvider();
+      
+      // Send conflict alert to ALL connected doctors
+      for (var doc in chatsQuery.docs) {
+        final doctorId = doc.data()['doctorId'] as String?;
+        if (doctorId != null) {
+          await chatProvider.sendConflictAlert(
+            patientId: userId,
+            patientName: patientName,
+            doctorId: doctorId,
+            medicationName: medication.name,
+            interactions: interactions.map((i) => i.toJson()).toList(),
+          );
+        }
+      }
+
+      debugPrint('✅ Conflict alert sent to all doctor chats (${chatsQuery.docs.length} doctors)');
     } catch (e) {
-      debugPrint('⚠️ Error notifying doctor: $e');
+      debugPrint('⚠️ Error notifying doctors via chat: $e');
     }
   }
 

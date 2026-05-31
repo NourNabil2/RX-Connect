@@ -8,7 +8,7 @@ import 'package:pharmacist_assistant/core/service/DrugInteractionService.dart';
 class MedicationSearchField extends StatefulWidget {
   final TextEditingController controller;
   final String? initialValue;
-  final Function(String tradeName, String? activeIngredient)? onMedicationSelected;
+  final Function(Map<String, dynamic> med)? onMedicationSelected;
   final String? Function(String?)? validator;
   final bool enabled;
 
@@ -162,8 +162,7 @@ class _MedicationSearchFieldState extends State<MedicationSearchField> {
       itemBuilder: (context, index) {
         final med = _suggestions[index];
         return _SuggestionTile(
-          brandName: med['brand_name'] as String,
-          activeIngredient: med['active_ingredient_name'] as String?,
+          med: med,
           onTap: () => _onSuggestionSelected(med),
         );
       },
@@ -178,7 +177,7 @@ class _MedicationSearchFieldState extends State<MedicationSearchField> {
     widget.controller.selection = TextSelection.collapsed(offset: brandName.length);
 
     if (widget.onMedicationSelected != null) {
-      widget.onMedicationSelected!(brandName, activeIngredient);
+      widget.onMedicationSelected!(med);
     }
 
     _removeOverlay();
@@ -271,13 +270,11 @@ class _MedicationSearchFieldState extends State<MedicationSearchField> {
 // ==================== Suggestion Tile ====================
 
 class _SuggestionTile extends StatelessWidget {
-  final String brandName;
-  final String? activeIngredient;
+  final Map<String, dynamic> med;
   final VoidCallback onTap;
 
   const _SuggestionTile({
-    required this.brandName,
-    this.activeIngredient,
+    required this.med,
     required this.onTap,
   });
 
@@ -285,43 +282,66 @@ class _SuggestionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
+    final brandName = med['brand_name'] as String;
+    final activeIngredient = med['active_ingredient_name'] as String?;
+    final photoUrl = med['photo_url'] as String?;
+
     return InkWell(
       onTap: onTap,
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.medication_outlined,
-                  size: 20.r,
-                  color: theme.colorScheme.primary,
-                ),
-                SizedBox(width: 12.w),
-                Expanded(
-                  child: Text(
+            Container(
+              width: 40.r,
+              height: 40.r,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8.r),
+                border: Border.all(color: theme.dividerColor),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: photoUrl != null && photoUrl.isNotEmpty
+                  ? Image.network(
+                      photoUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Icon(
+                        Icons.medication_outlined,
+                        size: 20.r,
+                        color: theme.colorScheme.primary,
+                      ),
+                    )
+                  : Icon(
+                      Icons.medication_outlined,
+                      size: 20.r,
+                      color: theme.colorScheme.primary,
+                    ),
+            ),
+            SizedBox(width: 12.w),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
                     brandName,
                     style: theme.textTheme.bodyLarge?.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                ),
-              ],
-            ),
-            if (activeIngredient != null) ...[
-              SizedBox(height: 4.h),
-              Padding(
-                padding: EdgeInsets.only(right: 32.w),
-                child: Text(
-                  'المادة الفعالة: $activeIngredient',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.hintColor,
-                  ),
-                ),
+                  if (activeIngredient != null) ...[
+                    SizedBox(height: 4.h),
+                    Text(
+                      'المادة الفعالة: $activeIngredient',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.hintColor,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ],
               ),
-            ],
+            ),
           ],
         ),
       ),

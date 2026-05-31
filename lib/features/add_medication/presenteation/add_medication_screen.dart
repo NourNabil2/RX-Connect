@@ -46,6 +46,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
   String _frequency = 'daily';
   List<TimeOfDay> _times = [TimeOfDay.now()];
   File? _selectedImage;
+  String? _selectedPhotoUrl;
   bool _isSaving = false;
 
   List<DrugInteractionModel> _currentInteractions = [];
@@ -63,12 +64,17 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
   }
 
   // ─── Medication selected from search ───
-  void _onMedicationSelected(String tradeName, String? activeIngredient) async {
+  void _onMedicationSelected(Map<String, dynamic> med) async {
+    final tradeName = med['brand_name'] as String;
+    final activeIngredient = med['active_ingredient_name'] as String?;
+    final photoUrl = med['photo_url'] as String?;
+
     setState(() {
       _nameController.text = tradeName;
       if (activeIngredient != null && activeIngredient.isNotEmpty) {
         _ingredientController.text = activeIngredient;
       }
+      _selectedPhotoUrl = photoUrl;
       _isCheckingInteractions = true;
       _currentInteractions.clear();
     });
@@ -113,7 +119,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
       dosage: _dosageController.text,
       frequency: _frequency,
       times: timesString,
-      imageUrl: _selectedImage?.path,
+      imageUrl: _selectedImage?.path ?? _selectedPhotoUrl,
       notes: _notesController.text.isNotEmpty ? _notesController.text : null,
     );
 
@@ -143,13 +149,16 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
         Navigator.pop(context);
         _pickImage(ImageSource.gallery);
       },
-      onRemove: _selectedImage != null
+      onRemove: (_selectedImage != null || _selectedPhotoUrl != null)
           ? () {
         Navigator.pop(context);
-        setState(() => _selectedImage = null);
+        setState(() {
+          _selectedImage = null;
+          _selectedPhotoUrl = null;
+        });
       }
           : null,
-      hasImage: _selectedImage != null,
+      hasImage: _selectedImage != null || _selectedPhotoUrl != null,
     );
   }
 
@@ -215,6 +224,7 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
                     // ── Image picker ──
                     MedicationImagePicker(
                       selectedImage: _selectedImage,
+                      networkImageUrl: _selectedPhotoUrl,
                       onTap: _showImagePickerOptions,
                     ),
                     SizedBox(height: 24.h),

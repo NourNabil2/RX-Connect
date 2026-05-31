@@ -3,6 +3,7 @@ import 'package:pharmacist_assistant/core/models/medication/medication_model.dar
 import 'package:pharmacist_assistant/features/auth/presentaion/screens/login_screen.dart';
 import 'package:pharmacist_assistant/features/auth/presentaion/screens/sign_up_screen.dart';
 import 'package:pharmacist_assistant/features/add_medication/presenteation/medication_details_screen.dart';
+import 'package:pharmacist_assistant/features/dashboard/presentation/doctor_dashboard.dart';
 
 // Screens
 import '../../features/add_medication/presenteation/add_medication_screen.dart';
@@ -41,6 +42,9 @@ class AppRoutes {
     patientHome: (context) => const PatientHomeScreen(),
     addMedication: (context) => const AddMedicationScreen(),
     register: (context) => const SignUpScreen(),
+
+    // Doctor
+    doctorHome: (context) => const DoctorDashboardScreen(),
     medicationDetails: (context) {
       final args = ModalRoute.of(context)!.settings.arguments;
       if (args is MedicationModel) {

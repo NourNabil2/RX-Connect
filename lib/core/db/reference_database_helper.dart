@@ -132,7 +132,7 @@ class ReferenceDatabaseHelper {
       if (query.trim().isEmpty) return [];
 
       final List<Map<String, dynamic>> results = await db.rawQuery('''
-        SELECT t.brand_name, t.active_ingredient_id, a.name as active_ingredient_name
+        SELECT t.brand_name, t.active_ingredient_id, t.photo_url, a.name as active_ingredient_name
         FROM trade_names t
         INNER JOIN active_ingredients a ON t.active_ingredient_id = a.id
         WHERE t.brand_name LIKE ? COLLATE NOCASE
@@ -151,7 +151,7 @@ class ReferenceDatabaseHelper {
     try {
       final db = await database;
       final List<Map<String, dynamic>> results = await db.rawQuery('''
-        SELECT t.brand_name, t.active_ingredient_id, a.name as active_ingredient_name
+        SELECT t.brand_name, t.active_ingredient_id, t.photo_url, a.name as active_ingredient_name
         FROM trade_names t
         INNER JOIN active_ingredients a ON t.active_ingredient_id = a.id
         ORDER BY t.brand_name ASC
