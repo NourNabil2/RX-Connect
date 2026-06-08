@@ -11,6 +11,7 @@ import 'package:pharmacist_assistant/features/auth/presentaion/cubit/auth_status
 import 'package:provider/provider.dart';
 import 'package:pharmacist_assistant/core/models/medication/medication_model.dart';
 import 'package:pharmacist_assistant/features/home/presentation/cubit/adherence_provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 // ─────────────────────────────────────────────
 //  CONSTANTS
@@ -236,7 +237,7 @@ class _MedicationDetailsScreenState extends State<MedicationDetailsScreen>
                 ? ClipRRect(
               borderRadius: BorderRadius.circular(14.r),
               child: widget.medication.imageUrl!.startsWith('http')
-                  ? Image.network(widget.medication.imageUrl!, fit: BoxFit.cover, errorBuilder: (c, e, s) => Icon(Icons.medication_rounded, color: Colors.white, size: 30.r))
+                  ? CachedNetworkImage(imageUrl: widget.medication.imageUrl!, fit: BoxFit.cover, errorWidget: (c, url, e) => Icon(Icons.medication_rounded, color: Colors.white, size: 30.r))
                   : Image.file(File(widget.medication.imageUrl!), fit: BoxFit.cover, errorBuilder: (c, e, s) => Icon(Icons.medication_rounded, color: Colors.white, size: 30.r)),
             )
                 : Icon(Icons.medication_rounded, color: Colors.white, size: 30.r),

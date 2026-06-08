@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
 class ReferenceDatabaseHelper {
@@ -18,12 +19,23 @@ class ReferenceDatabaseHelper {
     return _database!;
   }
 
+  // قم بزيادة هذا الرقم في المستقبل كلما قمت بتحديث ملف الداتا بيز في مجلد assets
+  static const int _currentDbVersion = 2; 
+
   Future<Database> _initDatabase() async {
     final Directory documentsDirectory = await getApplicationDocumentsDirectory();
     final String dbPath = join(documentsDirectory.path, 'medical_reference.db');
 
-    if (!await databaseExists(dbPath)) {
+    final prefs = await SharedPreferences.getInstance();
+    final savedVersion = prefs.getInt('medical_db_version') ?? 0;
+
+    // إذا لم تكن الداتا بيز موجودة أو كان الإصدار قديماً، قم بمسحها ونسخها من جديد
+    if (!await databaseExists(dbPath) || savedVersion < _currentDbVersion) {
+      if (await databaseExists(dbPath)) {
+        await deleteDatabase(dbPath);
+      }
       await _copyDatabaseFromAssets(dbPath);
+      await prefs.setInt('medical_db_version', _currentDbVersion);
     }
 
     return openDatabase(dbPath, readOnly: true, singleInstance: true);

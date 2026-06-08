@@ -358,7 +358,22 @@ class _MedicationsTabScreenState extends State<MedicationsTabScreen> with Automa
       return false;
     } else {
       // Delete
-      return await MedicationDeleteDialog.show(context, medication.name);
+      final shouldDelete = await MedicationDeleteDialog.show(context, medication.name);
+      if (shouldDelete) {
+        final success = await context.read<MedicationProvider>().deleteMedication(context, medication.id);
+        if (success) {
+           ScaffoldMessenger.of(context).showSnackBar(
+             SnackBar(content: Text('تم حذف ${medication.name}')),
+           );
+           return true;
+        } else {
+           ScaffoldMessenger.of(context).showSnackBar(
+             const SnackBar(content: Text('فشل الحذف')),
+           );
+           return false;
+        }
+      }
+      return false;
     }
   }
 

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:pharmacist_assistant/core/utils/extension.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 /// Medication Header with Image
 class MedicationDetailsHeader extends StatelessWidget {
@@ -129,10 +130,10 @@ class _MedicationHeaderImage extends StatelessWidget {
     }
 
     if (imageUrl!.startsWith('http')) {
-      return Image.network(
-        imageUrl!,
+      return CachedNetworkImage(
+        imageUrl: imageUrl!,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => _buildPlaceholder(),
+        errorWidget: (_, url, error) => _buildPlaceholder(),
       );
     }
 

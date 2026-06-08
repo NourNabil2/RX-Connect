@@ -33,9 +33,9 @@ class MedicationProvider with ChangeNotifier {
   bool get hasInteractions => _detectedInteractions.isNotEmpty;
 
   /// Load Medications
-  Future<void> loadMedications(String userId) async {
+  Future<void> loadMedications(String userId, {bool force = false}) async {
     // منع التحميل المكرر
-    if (_status == MedicationStatus.loading) return;
+    if (!force && _status == MedicationStatus.loading) return;
 
     try {
       _status = MedicationStatus.loading;
@@ -43,12 +43,10 @@ class MedicationProvider with ChangeNotifier {
 
       // 1. تحميل من Local DB فوراً (سريع جداً)
       final localMeds = await _localDb.getAllMedications(userId);
-      if (localMeds.isNotEmpty) {
-        _medications = localMeds.map((m) => MedicationModel.fromMap(m)).toList();
-        _status = MedicationStatus.success;
-        notifyListeners();
-        debugPrint('✅ Loaded ${_medications.length} from cache');
-      }
+      _medications = localMeds.map((m) => MedicationModel.fromMap(m)).toList();
+      _status = MedicationStatus.success;
+      notifyListeners();
+      debugPrint('✅ Loaded ${_medications.length} from cache');
 
       // 2. Sync مع Firestore في الخلفية (بدون await)
       _syncWithFirestore(userId);
@@ -210,7 +208,7 @@ class MedicationProvider with ChangeNotifier {
       await _scheduleMedicationAlarms(updatedMedication);
 
       // 6. Reload medications
-      await loadMedications(userId);
+      await loadMedications(userId, force: true);
 
       _status = MedicationStatus.success;
       notifyListeners();
@@ -319,7 +317,7 @@ class MedicationProvider with ChangeNotifier {
       }
 
       // 7. Reload medications
-      await loadMedications(userId);
+      await loadMedications(userId, force: true);
 
       _status = MedicationStatus.success;
       debugPrint('✅ Medication added successfully!');
@@ -400,7 +398,7 @@ class MedicationProvider with ChangeNotifier {
       await _localDb.deleteMedication(medicationId);
 
       // Reload
-      await loadMedications(userId);
+      await loadMedications(userId, force: true);
 
       debugPrint('✅ Deleted medication: $medicationId');
       return true;

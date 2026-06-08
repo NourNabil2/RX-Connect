@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 /// Widget لعرض صورة الدواء
 /// يدعم الصور من الإنترنت والملفات المحلية
@@ -44,10 +45,10 @@ class MedicationImageLibWidget extends StatelessWidget {
 
   Widget _buildImage() {
     if (imageUrl!.startsWith('http')) {
-      return Image.network(
-        imageUrl!,
+      return CachedNetworkImage(
+        imageUrl: imageUrl!,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => Icon(
+        errorWidget: (_, url, error) => Icon(
           fallbackIcon,
           color: Colors.grey[400],
         ),

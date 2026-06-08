@@ -65,6 +65,10 @@ class _AddMedicationScreenState extends State<AddMedicationScreen> {
 
   // ─── Medication selected from search ───
   void _onMedicationSelected(Map<String, dynamic> med) async {
+    debugPrint('=== Selected Medication Data ===');
+    debugPrint(med.toString());
+    debugPrint('================================');
+    
     final tradeName = med['brand_name'] as String;
     final activeIngredient = med['active_ingredient_name'] as String?;
     final photoUrl = med['photo_url'] as String?;

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:pharmacist_assistant/core/service/DrugInteractionService.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 /// Professional AutoComplete medication search field
 /// Connects directly to medical_reference.db
@@ -302,10 +303,10 @@ class _SuggestionTile extends StatelessWidget {
               ),
               clipBehavior: Clip.antiAlias,
               child: photoUrl != null && photoUrl.isNotEmpty
-                  ? Image.network(
-                      photoUrl,
+                  ? CachedNetworkImage(
+                      imageUrl: photoUrl,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Icon(
+                      errorWidget: (context, url, error) => Icon(
                         Icons.medication_outlined,
                         size: 20.r,
                         color: theme.colorScheme.primary,

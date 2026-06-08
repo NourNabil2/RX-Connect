@@ -136,7 +136,20 @@ Widget buildMedicationCard(
             if (imageUrl != null)
               ClipRRect(
                 borderRadius: BorderRadius.circular(12.r),
-                child: Image.network(imageUrl, width: 50.r, height: 50.r, fit: BoxFit.cover),
+                child: CachedNetworkImage(
+                  imageUrl: imageUrl, 
+                  width: 50.r, 
+                  height: 50.r, 
+                  fit: BoxFit.cover,
+                  errorWidget: (context, url, error) => Container(
+                    width: 50.r, height: 50.r,
+                    decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12.r)
+                    ),
+                    child: Icon(Icons.medication, color: statusColor, size: 28.r),
+                  ),
+                ),
               )
             else
               Container(

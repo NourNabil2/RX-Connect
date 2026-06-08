@@ -10,6 +10,7 @@ import 'package:pharmacist_assistant/features/chat/presentation/screens/doctors_
 import 'package:pharmacist_assistant/core/models/medication/medication_model.dart';
 import 'package:pharmacist_assistant/core/utils/extension.dart'; // Contains .hhmm() extension
 import 'dart:io';
+import 'package:cached_network_image/cached_network_image.dart';
 
 // Assuming DrugInteractionModel is defined in medication_model.dart or a related file
 // Since you provided the definition for DrugInteractionModel, we use it directly here.
@@ -66,10 +67,10 @@ class MedicationImagePicker extends StatelessWidget {
               : networkImageUrl != null && networkImageUrl!.isNotEmpty
               ? ClipRRect(
             borderRadius: BorderRadius.circular(16.r),
-            child: Image.network(
-              networkImageUrl!,
+            child: CachedNetworkImage(
+              imageUrl: networkImageUrl!,
               fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) => _buildPlaceholder(theme),
+              errorWidget: (context, url, error) => _buildPlaceholder(theme),
             ),
           )
               : _buildPlaceholder(theme),
